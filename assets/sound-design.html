@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>ASTERISK*IDS — CANNON SOUND DESIGNER</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #312c28;
+  color: #3CC8A4;
+  font-family: 'Courier New', monospace;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  padding: 48px 32px;
+}
+h1 {
+  font-size: 15px;
+  letter-spacing: 0.25em;
+  color: #fff;
+  opacity: 0.5;
+  margin-bottom: 32px;
+}
+.panel {
+  width: 100%;
+  max-width: 580px;
+}
+/* Mode toggle */
+.mode-row {
+  display: flex;
+  gap: 0;
+  justify-content: center;
+  margin-bottom: 28px;
+}
+.mode-btn {
+  background: none;
+  border: 1px solid #3a3532;
+  color: #3CC8A4;
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  padding: 8px 28px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+.mode-btn:first-child { border-radius: 3px 0 0 3px; }
+.mode-btn:last-child  { border-radius: 0 3px 3px 0; margin-left: -1px; }
+.mode-btn.active { background: #3CC8A4; color: #1e1a17; border-color: #3CC8A4; }
+/* Sliders */
+.controls {
+  display: grid;
+  grid-template-columns: 150px 1fr 72px;
+  gap: 14px 16px;
+  align-items: center;
+  margin-bottom: 28px;
+}
+label {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  opacity: 0.7;
+  text-align: right;
+}
+input[type=range] {
+  width: 100%;
+  accent-color: #3CC8A4;
+  cursor: pointer;
+  height: 4px;
+}
+.val {
+  font-size: 13px;
+  color: #fff;
+  text-align: right;
+  letter-spacing: 0.05em;
+}
+/* Waveform selector (tone mode) */
+.select-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.select-label {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  opacity: 0.7;
+}
+.wave-btns { display: flex; gap: 0; }
+.wave-btn {
+  background: none;
+  border: 1px solid #3a3532;
+  color: #3CC8A4;
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.wave-btn:first-child { border-radius: 3px 0 0 3px; }
+.wave-btn:last-child  { border-radius: 0 3px 3px 0; margin-left: -1px; }
+.wave-btn.active { background: #3CC8A4; color: #1e1a17; border-color: #3CC8A4; }
+/* Toggle */
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  margin-bottom: 28px;
+}
+.toggle-label {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  opacity: 0.7;
+}
+.toggle {
+  width: 44px; height: 22px;
+  background: #1e1a17;
+  border: 1px solid #3a3532;
+  border-radius: 11px;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.15s, border-color 0.15s;
+}
+.toggle.on { background: #3CC8A4; border-color: #3CC8A4; }
+.toggle::after {
+  content: '';
+  position: absolute;
+  width: 16px; height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  top: 2px; left: 2px;
+  transition: left 0.15s;
+}
+.toggle.on::after { left: 24px; }
+/* Buttons */
+.buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 36px;
+}
+button {
+  background: none;
+  border: 1px solid currentColor;
+  color: #3CC8A4;
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  padding: 10px 22px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+button:hover, button.active { background: #3CC8A4; color: #1e1a17; }
+.fire-btn {
+  font-size: 16px;
+  padding: 14px 44px;
+  letter-spacing: 0.3em;
+  border-color: #fff;
+  color: #fff;
+}
+.fire-btn:hover, .fire-btn.flash { background: #fff !important; color: #1e1a17 !important; }
+hr {
+  border: none;
+  border-top: 1px solid #3a3532;
+  margin-bottom: 24px;
+}
+.section-label {
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  opacity: 0.4;
+  margin-bottom: 12px;
+}
+.code-box {
+  background: #1e1a17;
+  border: 1px solid #3a3532;
+  padding: 16px 20px;
+  font-size: 13px;
+  color: #FF00FF;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: border-color 0.2s;
+  word-break: break-all;
+  margin-bottom: 8px;
+}
+.code-box:hover { border-color: #FF00FF; }
+.code-hint {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  opacity: 0.35;
+  text-align: center;
+}
+</style>
+</head>
+<body>
+
+<h1>ASTERISK*IDS &mdash; CANNON SOUND DESIGNER</h1>
+
+<div class="panel">
+
+  <div class="mode-row">
+    <button class="mode-btn" id="btn-noise" onclick="setMode('noise')">NOISE</button>
+    <button class="mode-btn active" id="btn-tone" onclick="setMode('tone')">TONE</button>
+  </div>
+
+  <div class="controls">
+    <label>FREQUENCY</label>
+    <input type="range" id="freq" min="40" max="8000" step="10" value="150">
+    <span class="val" id="freq-val">150 Hz</span>
+
+    <label>DURATION</label>
+    <input type="range" id="dur" min="0.01" max="1.5" step="0.01" value="0.70">
+    <span class="val" id="dur-val">0.70 s</span>
+
+    <label>GAIN</label>
+    <input type="range" id="gain" min="0.01" max="0.5" step="0.005" value="0.350">
+    <span class="val" id="gain-val">0.350</span>
+
+    <!-- Q row (noise only) -->
+    <label id="Q-label">RESONANCE (Q)</label>
+    <input type="range" id="Q" min="0.1" max="50" step="0.1" value="1.5">
+    <span class="val" id="Q-val">1.5</span>
+  </div>
+
+  <!-- Waveform selector (tone only) -->
+  <div class="select-row" id="wave-row">
+    <span class="select-label">WAVEFORM</span>
+    <div class="wave-btns">
+      <button class="wave-btn active" onclick="setWave('sine')">SINE</button>
+      <button class="wave-btn" onclick="setWave('triangle')">TRIANGLE</button>
+      <button class="wave-btn" onclick="setWave('square')">SQUARE</button>
+      <button class="wave-btn" onclick="setWave('sawtooth')">SAW</button>
+    </div>
+  </div>
+
+  <!-- Env decay (noise only) -->
+  <div class="row" id="decay-row" style="display:none">
+    <span class="toggle-label">ENV DECAY</span>
+    <div class="toggle on" id="envDecay" onclick="toggleDecay()"></div>
+  </div>
+
+  <div class="buttons">
+    <button class="fire-btn" id="fireBtn" onclick="fire()">FIRE &nbsp;[SPACE]</button>
+    <button id="autoBtn" onclick="toggleAuto()">AUTO FIRE</button>
+  </div>
+
+  <hr>
+  <div class="section-label">GENERATED CODE &mdash; click to copy</div>
+  <div class="code-box" id="codeBox" onclick="copyCode()"></div>
+  <div class="code-hint">CLICK TO COPY &nbsp;&bull;&nbsp; PASTE INTO CHAT TO APPLY</div>
+</div>
+
+<script>
+let autoInterval = null;
+let envDecay = true;
+let actx = null;
+let synthMode = 'tone';   // 'noise' | 'tone'
+let waveType = 'sine';
+
+const p = { freq: 150, dur: 0.70, gain: 0.350, Q: 1.5 };
+
+function audio() {
+  if (!actx) actx = new AudioContext();
+  if (actx.state === 'suspended') actx.resume();
+  return actx;
+}
+
+function noiseBurst(freq, dur, gain, Q, decay) {
+  try {
+    const a = audio();
+    const n = Math.ceil(a.sampleRate * dur);
+    const buf = a.createBuffer(1, n, a.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++)
+      d[i] = (Math.random()*2-1) * (decay ? (1 - i/n) : 1);
+    const src = a.createBufferSource();
+    src.buffer = buf;
+    const bp = a.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = freq; bp.Q.value = Q;
+    const g = a.createGain(); g.gain.value = gain;
+    src.connect(bp); bp.connect(g); g.connect(a.destination);
+    src.start();
+  } catch(e) {}
+}
+
+function tone(freq, type, gain, dur) {
+  try {
+    const a = audio();
+    const o = a.createOscillator();
+    const g = a.createGain();
+    o.type = type; o.frequency.value = freq;
+    o.connect(g); g.connect(a.destination);
+    const t = a.currentTime;
+    g.gain.setValueAtTime(gain, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.start(t); o.stop(t + dur + 0.05);
+  } catch(e) {}
+}
+
+function fire() {
+  if (synthMode === 'noise') {
+    noiseBurst(p.freq, p.dur, p.gain, p.Q, envDecay);
+  } else {
+    tone(p.freq, waveType, p.gain, p.dur);
+  }
+  const btn = document.getElementById('fireBtn');
+  btn.classList.add('flash');
+  setTimeout(() => btn.classList.remove('flash'), 70);
+}
+
+function setMode(m) {
+  synthMode = m;
+  document.getElementById('btn-noise').classList.toggle('active', m === 'noise');
+  document.getElementById('btn-tone').classList.toggle('active', m === 'tone');
+  // Show/hide Q row
+  const qLabel = document.getElementById('Q-label');
+  const qSlider = document.getElementById('Q');
+  const qVal = document.getElementById('Q-val');
+  const show = m === 'noise';
+  [qLabel, qSlider, qVal].forEach(el => el.style.display = show ? '' : 'none');
+  document.getElementById('wave-row').style.display  = m === 'tone'  ? '' : 'none';
+  document.getElementById('decay-row').style.display = m === 'noise' ? '' : 'none';
+  // Adjust duration range
+  const durSlider = document.getElementById('dur');
+  if (m === 'tone') {
+    durSlider.max = 1.5; durSlider.step = 0.01;
+  } else {
+    durSlider.max = 0.5; durSlider.step = 0.005;
+    if (p.dur > 0.5) { p.dur = 0.5; durSlider.value = 0.5; document.getElementById('dur-val').textContent = '0.500 s'; }
+  }
+  updateCode();
+}
+
+function setWave(w) {
+  waveType = w;
+  document.querySelectorAll('.wave-btn').forEach(b => b.classList.toggle('active', b.textContent.toLowerCase() === w || (w === 'sawtooth' && b.textContent === 'SAW')));
+  updateCode();
+}
+
+function toggleDecay() {
+  envDecay = !envDecay;
+  document.getElementById('envDecay').classList.toggle('on', envDecay);
+  updateCode();
+}
+
+function toggleAuto() {
+  const btn = document.getElementById('autoBtn');
+  if (autoInterval) {
+    clearInterval(autoInterval);
+    autoInterval = null;
+    btn.classList.remove('active');
+    btn.textContent = 'AUTO FIRE';
+  } else {
+    fire();
+    autoInterval = setInterval(fire, 80);
+    btn.classList.add('active');
+    btn.textContent = 'STOP';
+  }
+}
+
+function fmt(n, dec) { return n.toFixed(dec); }
+
+function updateCode() {
+  let code;
+  if (synthMode === 'noise') {
+    const decayArg = envDecay ? '' : ', false';
+    code = `fire: () => noiseBurst(${Math.round(p.freq)}, ${fmt(p.dur,3)}, ${fmt(p.gain,3)}, ${fmt(p.Q,1)}${decayArg}),`;
+  } else {
+    code = `fire: () => tone(${Math.round(p.freq)}, '${waveType}', ${fmt(p.gain,3)}, ${fmt(p.dur,2)}),`;
+  }
+  document.getElementById('codeBox').textContent = code;
+}
+
+function copyCode() {
+  navigator.clipboard.writeText(document.getElementById('codeBox').textContent).then(() => {
+    const box = document.getElementById('codeBox');
+    box.style.borderColor = '#FF00FF';
+    setTimeout(() => box.style.borderColor = '', 500);
+  });
+}
+
+['freq', 'dur', 'gain', 'Q'].forEach(id => {
+  const el = document.getElementById(id);
+  const vEl = document.getElementById(id + '-val');
+  el.addEventListener('input', () => {
+    p[id] = parseFloat(el.value);
+    if (id === 'freq') vEl.textContent = Math.round(p.freq) + ' Hz';
+    else if (id === 'dur') vEl.textContent = fmt(p.dur, synthMode === 'tone' ? 2 : 3) + ' s';
+    else if (id === 'gain') vEl.textContent = fmt(p.gain, 3);
+    else if (id === 'Q') vEl.textContent = fmt(p.Q, 1);
+    updateCode();
+  });
+});
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); fire(); }
+});
+
+// Init in tone mode
+setMode('tone');
+</script>
+</body>
+</html>

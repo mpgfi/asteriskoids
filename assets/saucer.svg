@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Lager_1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 3628.3 1133.9">
+  <!-- Generator: Adobe Illustrator 30.2.1, SVG Export Plug-In . SVG Version: 2.1.1 Build 1)  -->
+  <defs>
+    <style>
+      .st0 {
+        fill: none;
+        stroke: #1d1d1b;
+        stroke-miterlimit: 10;
+        stroke-width: 20.5px;
+      }
+    </style>
+  </defs>
+  <path class="st0" d="M2177.3,399.4c-25.2-155.5-206.3-276.2-426-276.2s-387.3,111.9-422.5,259.1l-417.6,130.4-6.4,85h1665.7v-74.4l-393.1-124Z"/>
+  <g>
+    <line class="st0" x1="1417.8" y1="407.3" x2="1597.5" y2="407.3"/>
+    <line class="st0" x1="1664.5" y1="407.3" x2="1844.2" y2="407.3"/>
+    <line class="st0" x1="1902" y1="407.3" x2="2081.7" y2="407.3"/>
+  </g>
+  <path class="st0" d="M1161,596.9c72.3,118.1,304.4,204.5,579.6,204.5s507.3-86.4,579.6-204.5h-1159.3Z"/>
+</svg>

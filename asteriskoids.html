@@ -1,0 +1,1502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ASTERISK*IDS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bungee+Hairline&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #312c28;
+    display: flex; justify-content: center; align-items: center;
+    overflow: hidden;
+  }
+  #bezel {
+    position: relative;
+    background: #0d0d0d;
+    border-radius: 18px;
+    padding: 28px 32px 36px;
+    box-shadow:
+      inset 0 0 40px rgba(0,0,0,0.9),
+      0 0 60px rgba(0,0,0,0.8),
+      0 0 4px #333;
+    border: 3px solid #222;
+  }
+  #screen {
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow:
+      inset 0 0 30px rgba(0,255,60,0.04),
+      0 0 2px rgba(0,255,60,0.15);
+  }
+  canvas {
+    display: block;
+    border-radius: 6px;
+  }
+  #overlay { display: none; }
+  #bezel-label {
+    text-align: center;
+    margin-top: 27px;
+    font-family: 'Bungee Hairline', sans-serif;
+    font-size: 12px;
+    letter-spacing: 6px;
+    color: #444;
+    text-transform: lowercase;
+  }
+  #bezel-label a {
+    color: inherit;
+    text-decoration: none;
+  }
+  #bezel-label a:hover {
+    color: #888;
+    text-decoration: underline;
+  }
+</style>
+</head>
+<body>
+
+<div id="bezel">
+  <div id="screen">
+    <canvas id="game"></canvas>
+    <div id="overlay"></div>
+  </div>
+  <div id="bezel-label"><a href="mailto:magnus@mpgfi.se" style="opacity:0.3"><svg height="30" viewBox="0 0 200 217.5" xmlns="http://www.w3.org/2000/svg"><polygon points="1.1 1 199.4 1 199.4 216.4 1.1 216.4 1.1 1" fill="#515151"/><path d="M57.7,38.2c8.3-6.5,17.8-11.2,28.5-11.3,12,0,20.4,4.3,25.6,13.2,4.3-3.5,8.5-6.5,13.2-9,5.2-2.7,10.9-4.1,17.2-4.2,8.2,0,15.1,2.6,20.6,7.9,5.5,5.3,8.3,13,8.5,23.1v73.5h-28.6v-64.2c0-2.7,0-5.3-.3-8-.2-2.5-1-4.6-2.4-6.3-1.2-1.5-3.4-2.4-6.8-2.5-8,.2-14.3,4.7-18.8,11.1v70h-28.3s0-64.2,0-64.2c.2-7.6.5-16.6-9.5-16.8-8,.2-14.3,4.7-18.8,11.1v70h-28.3V29h28.3v9.2h0Z" fill="#999"/><polygon points="57.7 131.4 86.1 131.4 86.1 159.7 57.7 159.7 57.7 131.4" fill="#999"/><polygon points="114.4 131.4 142.7 131.4 142.7 159.7 114.4 159.7 114.4 131.4" fill="#999"/><polygon points="29.4 159.7 57.7 159.7 57.7 188 29.4 188 29.4 159.7" fill="#999"/><polygon points="86.1 159.7 114.4 159.7 114.4 188 86.1 188 86.1 159.7" fill="#999"/><polygon points="142.7 159.7 171.1 159.7 171.1 188 142.7 188 142.7 159.7" fill="#999"/></svg></a></div>
+</div>
+
+<script>
+// ============================================================
+//  ASTERISK*IDS — Vector Arcade
+//  Controls: Arrow keys to rotate/thrust  |  Space to fire
+//  Down arrow = Hyperspace
+// ============================================================
+
+const W = 780, H = 580;
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+canvas.width = W;
+canvas.height = H;
+
+// Fit bezel to viewport
+(function resize() {
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const scale = Math.min((vw - 80) / (W + 64), (vh - 80) / (H + 90));
+  const s = Math.min(1.4, Math.max(0.4, scale));
+  document.getElementById('bezel').style.transform = `scale(${s})`;
+  document.getElementById('bezel').style.transformOrigin = 'center center';
+})();
+window.addEventListener('resize', () => {
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const scale = Math.min((vw - 80) / (W + 64), (vh - 80) / (H + 90));
+  const s = Math.min(1.4, Math.max(0.4, scale));
+  document.getElementById('bezel').style.transform = `scale(${s})`;
+});
+
+// Colours
+const PC  = '#ffffff';
+const RED = '#ff4444';
+const ORG = '#ff9620';
+
+// Purple → slate-blue → teal palette (sampled from the gradient image)
+const PALETTE = ['#8844CC','#7070CC','#6898D0','#50BAB4','#3CC8A4'];
+let currentPalette = [...PALETTE];
+function rndColor() { return currentPalette[Math.floor(Math.random() * currentPalette.length)]; }
+
+function hexToHsl(hex) {
+  let r=parseInt(hex.slice(1,3),16)/255, g=parseInt(hex.slice(3,5),16)/255, b=parseInt(hex.slice(5,7),16)/255;
+  const max=Math.max(r,g,b), min=Math.min(r,g,b); let h,s,l=(max+min)/2;
+  if (max===min) { h=s=0; } else {
+    const d=max-min; s=l>0.5?d/(2-max-min):d/(max+min);
+    switch(max){ case r:h=((g-b)/d+(g<b?6:0))/6;break; case g:h=((b-r)/d+2)/6;break; case b:h=((r-g)/d+4)/6;break; }
+  }
+  return [h*360,s*100,l*100];
+}
+function hslToHex(h,s,l) {
+  h=((h%360)+360)%360; s/=100; l/=100;
+  const a=s*Math.min(l,1-l);
+  const f=n=>{ const k=(n+h/30)%12; return l-a*Math.max(-1,Math.min(k-3,9-k,1)); };
+  return '#'+[f(0),f(8),f(4)].map(x=>Math.round(x*255).toString(16).padStart(2,'0')).join('');
+}
+function shiftPaletteHue(deg) {
+  currentPalette = PALETTE.map(hex => { const [h,s,l]=hexToHsl(hex); return hslToHex(h+deg,s,l); });
+}
+function resetPalette() { currentPalette = [...PALETTE]; }
+
+// ── Scoreboard (persisted in localStorage) ──────────────────
+const SCORE_KEY = 'ast_scores_v1';
+let scores = (() => { try { return JSON.parse(localStorage.getItem(SCORE_KEY)); } catch(e){} return null; })()
+             || Array.from({length:10}, () => ({name:'AAA', score:0}));
+function saveScores() { try { localStorage.setItem(SCORE_KEY, JSON.stringify(scores)); } catch(e){} }
+function qualifiesForBoard(s) { return s > 0 && s > scores[scores.length-1].score; }
+function scoreRank(s) { for (let i=0;i<scores.length;i++) if (s > scores[i].score) return i; return scores.length-1; }
+function insertScore(name, s) {
+  scores.push({name, score:s}); scores.sort((a,b)=>b.score-a.score);
+  if (scores.length>10) scores.length=10; saveScores();
+}
+function previewBoard(name, s) {
+  const t=[...scores,{name,score:s}]; t.sort((a,b)=>b.score-a.score); return t.slice(0,10);
+}
+
+// ============================================================
+//  VECTOR DRAWING — clean single-pass lines
+// ============================================================
+function vLine(x1, y1, x2, y2, _bright, color) {
+  ctx.beginPath();
+  ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+  ctx.strokeStyle = color || PC;
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+}
+
+function vPoly(pts, closed = true, _bright, color) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  if (closed) ctx.closePath();
+  ctx.strokeStyle = color || PC;
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+}
+
+function vDot(x, y, r, _bright, color) {
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2);
+  ctx.strokeStyle = color || PC;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}
+function vAsterisk(x, y, r, color) {
+  ctx.strokeStyle = color || PC;
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  for (let i = 0; i < 3; i++) {
+    const a = i * Math.PI / 3;
+    ctx.moveTo(x + Math.cos(a)*r, y + Math.sin(a)*r);
+    ctx.lineTo(x - Math.cos(a)*r, y - Math.sin(a)*r);
+  }
+  ctx.stroke();
+}
+
+function vText(text, x, y, size = 24, align = 'center', _bright, color) {
+  ctx.font = `${size}px "Bungee Hairline", sans-serif`;
+  ctx.textAlign = align; ctx.textBaseline = 'middle';
+  ctx.fillStyle = color || PC;
+  ctx.fillText(text, x, y);
+}
+
+function rot(px, py, a) {
+  const c = Math.cos(a), s = Math.sin(a);
+  return [px*c - py*s, px*s + py*c];
+}
+
+function xfPoly(pts, ox, oy, angle, bright = 1, color = null) {
+  const xf = pts.map(([px,py]) => { const [rx,ry]=rot(px,py,angle); return [ox+rx,oy+ry]; });
+  vPoly(xf, true, bright, color);
+  return xf;
+}
+
+// ============================================================
+//  AUDIO — Web Audio synth
+// ============================================================
+let ac = null;
+function audio() {
+  if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+  return ac;
+}
+
+// Master bus: dry + true convolution reverb
+let _master = null;
+function master() {
+  const a = audio();
+  if (_master) return _master;
+
+  // Convolution reverb impulse: exponential decay for a smooth, natural room tail
+  const secs = 3.0, rate = a.sampleRate;
+  const ibuf = a.createBuffer(2, Math.ceil(rate * secs), rate);
+  for (let c = 0; c < 2; c++) {
+    const d = ibuf.getChannelData(c);
+    for (let i = 0; i < d.length; i++)
+      d[i] = (Math.random()*2-1) * Math.exp(-i / (rate * 1.8));
+  }
+  const conv = a.createConvolver(); conv.buffer = ibuf;
+  const revWet = a.createGain(); revWet.gain.value = 1.10;
+
+  const dry = a.createGain(); dry.gain.value = 0.75;
+  _master = a.createGain(); _master.gain.value = 1;
+  _master.connect(dry);    dry.connect(a.destination);
+  _master.connect(conv);   conv.connect(revWet); revWet.connect(a.destination);
+  return _master;
+}
+
+function tone(freq, type, dur, gain = 0.25, delay = 0) {
+  try {
+    const a = audio();
+    const o = a.createOscillator(), g = a.createGain();
+    o.connect(g); g.connect(master());
+    o.type = type; o.frequency.value = freq;
+    const t = a.currentTime + delay;
+    g.gain.setValueAtTime(gain, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.start(t); o.stop(t + dur + 0.05);
+  } catch(e) {}
+}
+
+// Filtered noise burst: freq = bandpass centre Hz, dur = seconds, gain, Q sharpness
+function noiseBurst(freq, dur, gain = 0.15, Q = 1.5, envDecay = true) {
+  try {
+    const a = audio();
+    const samples = Math.ceil(a.sampleRate * dur);
+    const buf = a.createBuffer(1, samples, a.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < samples; i++)
+      d[i] = (Math.random()*2-1) * (envDecay ? (1 - i/samples) : 1);
+    const src = a.createBufferSource();
+    src.buffer = buf;
+    const bp = a.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = freq; bp.Q.value = Q;
+    const g = a.createGain(); g.gain.value = gain;
+    src.connect(bp); bp.connect(g); g.connect(master());
+    src.start();
+  } catch(e) {}
+}
+
+function noise(dur, gain = 0.08) {
+  noiseBurst(400, dur, gain, 0.5);
+}
+
+const SFX = {
+  fire:   () => { noiseBurst(1240, 0.340, 0.225, 7.2); tone(40, 'sine', 0.200, 0.18); },
+  bigBoom:() => { noiseBurst(55,  0.8, 2.0, 1.2); noiseBurst(38, 0.6, 1.40, 0.8); },
+  medBoom:() => noiseBurst(100, 0.5, 1.40, 1.2),
+  smlBoom:() => noiseBurst(180, 0.3, 1.00, 1.5),
+  die:    () => { [0,80,160,240,350].forEach(ms => setTimeout(() => noiseBurst(55 + Math.random()*40, 0.4, 1.20, 1), ms)); },
+  life:   () => { [880,1100,1320].forEach((f,i)=>tone(f,'sine',0.3,0.4,i*0.12)); },
+  ufo:    null,
+  ufoNode:null,
+};
+
+function startUFOSound(big) {
+  stopUFOSound();
+  try {
+    const a = audio();
+    const o = a.createOscillator(), g = a.createGain();
+    const lfo = a.createOscillator(), lg = a.createGain();
+    lfo.frequency.value = big ? 4 : 8;
+    lfo.connect(lg); lg.gain.value = big ? 200 : 100;
+    lg.connect(o.frequency);
+    o.frequency.value = big ? 500 : 900;
+    o.type = 'square';
+    g.gain.value = 0.02;
+    o.connect(g); g.connect(master());
+    lfo.start(); o.start();
+    SFX.ufoNode = [o, g, lfo, lg];
+  } catch(e) {}
+}
+function stopUFOSound() {
+  if (SFX.ufoNode) { try { SFX.ufoNode[0].stop(); SFX.ufoNode[2].stop(); } catch(e){} SFX.ufoNode = null; }
+}
+
+// Stop oscillators when tab is hidden or closed
+document.addEventListener('visibilitychange', () => { if (document.hidden) stopUFOSound(); });
+window.addEventListener('pagehide', () => stopUFOSound());
+
+let beatTmr = null, beatPhase = 0, beatSpeed = 800;
+function startBeat() {}
+function stopBeat() { clearTimeout(beatTmr); }
+
+function playFanfare() {
+  const notes = [
+    [262, 0.00], [330, 0.10], [392, 0.20], [523, 0.30],
+    [659, 0.42], [784, 0.52], [1047,0.64],
+  ];
+  notes.forEach(([f, t]) => tone(f, 'square', 0.13, 0.20, t));
+  [523, 659, 784].forEach(f => tone(f, 'square', 0.4, 0.14, 0.82));
+}
+
+// ============================================================
+//  MUSIC — Polonaise in G minor, BWV Anh. 119 (J.S. Bach)
+//  Three-voice 8-bit square-wave, low-pass filtered, looping.
+//  Extracted from MIDI (PPQ=384, 100 BPM).
+//  Voice 0 = melody, Voice 1 = inner (mel 8va bassa), Voice 2 = bass
+//  Each event: [beat_start, beat_dur, freq_hz, voice]
+// ============================================================
+const MUSIC_EVT = [
+  [3.0,0.7396,391.995,0],[3.0,0.7396,195.998,1],[3.0,0.9896,195.998,2],
+  [3.75,0.2396,440.0,0],[3.75,0.2396,220.0,1],
+  [4.0,0.9896,466.164,0],[4.0,0.9896,233.082,1],[4.0,0.9896,195.998,2],
+  [5.0,0.9896,523.251,0],[5.0,0.9896,261.625,1],[5.0,0.9896,195.998,2],
+  [6.0,0.4896,440.0,0],[6.0,0.4896,220.0,1],[6.0,0.9896,195.998,2],
+  [6.5,0.2396,440.0,0],[6.5,0.2396,220.0,1],
+  [6.75,0.2396,466.164,0],[6.75,0.2396,233.082,1],
+  [7.0,1.9896,523.251,0],[7.0,1.9896,261.625,1],
+  [7.0,0.4896,184.997,2],[7.5,0.4896,164.814,2],[8.0,0.4896,184.997,2],[8.5,0.4896,146.832,2],
+  [9.0,0.4896,466.164,0],[9.0,0.4896,233.082,1],[9.0,0.9896,195.998,2],
+  [9.5,0.2396,466.164,0],[9.5,0.2396,233.082,1],
+  [9.75,0.2396,523.251,0],[9.75,0.2396,261.625,1],
+  [10.0,0.4896,587.33,0],[10.0,0.4896,293.665,1],[10.0,0.9896,97.999,2],
+  [10.5,0.4896,783.991,0],[10.5,0.4896,391.995,1],
+  [11.0,0.4896,523.251,0],[11.0,0.4896,261.625,1],[11.0,0.9896,130.813,2],
+  [11.5,0.4896,783.991,0],[11.5,0.4896,391.995,1],
+  [12.0,0.4896,466.164,0],[12.0,0.4896,233.082,1],[12.0,0.9896,146.832,2],
+  [12.5,0.2396,440.0,0],[12.5,0.2396,220.0,1],
+  [12.75,0.2396,466.164,0],[12.75,0.2396,233.082,1],
+  [13.0,1.9896,391.995,0],[13.0,1.9896,195.998,1],
+  [13.0,0.4896,195.998,2],[13.5,0.4896,97.999,2],[14.0,0.4896,116.541,2],[14.5,0.4896,146.832,2],
+  [15.0,0.7396,391.995,0],[15.0,0.7396,195.998,1],[15.0,0.9896,195.998,2],
+  [15.75,0.2396,440.0,0],[15.75,0.2396,220.0,1],
+  [16.0,0.9896,466.164,0],[16.0,0.9896,233.082,1],[16.0,0.9896,195.998,2],
+  [17.0,0.9896,523.251,0],[17.0,0.9896,261.625,1],[17.0,0.9896,195.998,2],
+  [18.0,0.4896,440.0,0],[18.0,0.4896,220.0,1],[18.0,0.9896,195.998,2],
+  [18.5,0.2396,440.0,0],[18.5,0.2396,220.0,1],
+  [18.75,0.2396,466.164,0],[18.75,0.2396,233.082,1],
+  [19.0,1.9896,523.251,0],[19.0,1.9896,261.625,1],
+  [19.0,0.4896,184.997,2],[19.5,0.4896,164.814,2],[20.0,0.4896,184.997,2],[20.5,0.4896,146.832,2],
+  [21.0,0.4896,466.164,0],[21.0,0.4896,233.082,1],[21.0,0.9896,195.998,2],
+  [21.5,0.2396,466.164,0],[21.5,0.2396,233.082,1],
+  [21.75,0.2396,523.251,0],[21.75,0.2396,261.625,1],
+  [22.0,0.4896,587.33,0],[22.0,0.4896,293.665,1],[22.0,0.9896,97.999,2],
+  [22.5,0.4896,783.991,0],[22.5,0.4896,391.995,1],
+  [23.0,0.4896,523.251,0],[23.0,0.4896,261.625,1],[23.0,0.9896,130.813,2],
+  [23.5,0.4896,783.991,0],[23.5,0.4896,391.995,1],
+  [24.0,0.4896,466.164,0],[24.0,0.4896,233.082,1],[24.0,0.9896,146.832,2],
+  [24.5,0.2396,440.0,0],[24.5,0.2396,220.0,1],
+  [24.75,0.2396,466.164,0],[24.75,0.2396,233.082,1],
+  [25.0,1.9896,391.995,0],[25.0,1.9896,195.998,1],
+  [25.0,0.4896,195.998,2],[25.5,0.4896,97.999,2],[26.0,0.4896,116.541,2],[26.5,0.4896,146.832,2],
+  [27.0,0.7396,466.164,0],[27.0,0.7396,233.082,1],[27.0,0.7396,195.998,2],
+  [27.75,0.2396,523.251,0],[27.75,0.2396,261.625,1],[27.75,0.2396,220.0,2],
+  [28.0,0.9896,587.33,0],[28.0,0.9896,293.665,1],[28.0,0.9896,233.082,2],
+  [29.0,0.9896,698.456,0],[29.0,0.9896,349.228,1],[29.0,0.9896,220.0,2],
+  [30.0,0.4896,587.33,0],[30.0,0.4896,293.665,1],[30.0,0.9896,233.082,2],
+  [30.5,0.2396,523.251,0],[30.5,0.2396,261.625,1],
+  [30.75,0.2396,466.164,0],[30.75,0.2396,233.082,1],
+  [31.0,0.2396,440.0,0],[31.0,0.2396,220.0,1],[31.0,0.9896,174.614,2],
+  [31.25,0.2396,466.164,0],[31.25,0.2396,233.082,1],
+  [31.5,0.2396,523.251,0],[31.5,0.2396,261.625,1],
+  [31.75,0.2396,440.0,0],[31.75,0.2396,220.0,1],
+  [32.0,0.9896,349.228,0],[32.0,0.9896,174.614,1],[32.0,0.4896,174.614,2],[32.5,0.4896,155.563,2],
+  [33.0,0.4896,698.456,0],[33.0,0.4896,349.228,1],[33.0,0.9896,146.832,2],
+  [33.5,0.4896,587.33,0],[33.5,0.4896,293.665,1],
+  [34.0,0.4896,466.164,0],[34.0,0.4896,233.082,1],[34.0,0.9896,195.998,2],
+  [34.5,0.4896,698.456,0],[34.5,0.4896,349.228,1],
+  [35.0,0.2396,783.991,0],[35.0,0.2396,391.995,1],[35.0,0.9896,155.563,2],
+  [35.25,0.2396,698.456,0],[35.25,0.2396,349.228,1],
+  [35.5,0.2396,622.254,0],[35.5,0.2396,311.127,1],
+  [35.75,0.2396,587.33,0],[35.75,0.2396,293.665,1],
+  [36.0,0.4896,622.254,0],[36.0,0.4896,311.127,1],[36.0,0.9896,130.813,2],
+  [36.5,0.4896,523.251,0],[36.5,0.4896,261.625,1],
+  [37.0,0.4896,440.0,0],[37.0,0.4896,220.0,1],[37.0,0.9896,174.614,2],
+  [37.5,0.4896,622.254,0],[37.5,0.4896,311.127,1],
+  [38.0,0.2396,698.456,0],[38.0,0.2396,349.228,1],[38.0,0.9896,146.832,2],
+  [38.25,0.2396,622.254,0],[38.25,0.2396,311.127,1],
+  [38.5,0.2396,587.33,0],[38.5,0.2396,293.665,1],
+  [38.75,0.2396,523.251,0],[38.75,0.2396,261.625,1],
+  [39.0,0.4896,587.33,0],[39.0,0.4896,293.665,1],[39.0,0.9896,116.541,2],
+  [39.5,0.2396,523.251,0],[39.5,0.2396,261.625,1],
+  [39.75,0.2396,587.33,0],[39.75,0.2396,293.665,1],
+  [40.0,0.4896,622.254,0],[40.0,0.4896,311.127,1],[40.0,0.9896,195.998,2],
+  [40.5,0.4896,587.33,0],[40.5,0.4896,293.665,1],
+  [41.0,0.4896,523.251,0],[41.0,0.4896,261.625,1],[41.0,0.9896,155.563,2],
+  [41.5,0.4896,466.164,0],[41.5,0.4896,233.082,1],
+  [42.0,0.2396,440.0,0],[42.0,0.2396,220.0,1],[42.0,0.4896,174.614,2],
+  [42.25,0.2396,466.164,0],[42.25,0.2396,233.082,1],
+  [42.5,0.2396,523.251,0],[42.5,0.2396,261.625,1],[42.5,0.4896,155.563,2],
+  [42.75,0.2396,440.0,0],[42.75,0.2396,220.0,1],
+  [43.0,0.9896,466.164,0],[43.0,0.9896,233.082,1],[43.0,0.4896,146.832,2],[43.5,0.4896,155.563,2],
+  [44.0,0.4896,146.832,2],[44.0,0.9896,233.082,2],[44.5,0.4896,130.813,2],
+  [45.0,0.4896,587.33,0],[45.0,0.4896,293.665,1],[45.0,0.4896,116.541,2],
+  [46.0,0.4896,622.254,0],[46.0,0.4896,311.127,1],[46.0,0.4896,130.813,2],
+  [47.0,0.4896,391.995,0],[47.0,0.4896,195.998,1],[47.0,0.4896,155.563,2],
+  [48.0,0.4896,369.994,0],[48.0,0.4896,184.997,1],[48.0,0.9896,146.832,2],
+  [48.5,0.2396,369.994,0],[48.5,0.2396,184.997,1],
+  [48.75,0.2396,391.995,0],[48.75,0.2396,195.998,1],
+  [49.0,0.4896,440.0,0],[49.0,0.4896,220.0,1],[49.0,0.9896,146.832,2],
+  [49.5,0.4896,293.665,0],[49.5,0.4896,146.833,1],
+  [50.0,0.4896,369.994,0],[50.0,0.4896,184.997,1],[50.0,0.9896,130.813,2],
+  [50.5,0.4896,440.0,0],[50.5,0.4896,220.0,1],
+  [51.0,0.4896,587.33,0],[51.0,0.4896,293.665,1],[51.0,0.9896,116.541,2],
+  [51.5,0.2396,587.33,0],[51.5,0.2396,293.665,1],
+  [51.75,0.2396,622.254,0],[51.75,0.2396,311.127,1],
+  [52.0,0.4896,587.33,0],[52.0,0.4896,293.665,1],[52.0,0.9896,97.999,2],
+  [52.5,0.2396,587.33,0],[52.5,0.2396,293.665,1],
+  [52.75,0.2396,622.254,0],[52.75,0.2396,311.127,1],
+  [53.0,0.4896,587.33,0],[53.0,0.4896,293.665,1],[53.0,0.9896,116.541,2],
+  [53.5,0.4896,783.991,0],[53.5,0.4896,391.995,1],
+  [54.0,0.4896,466.164,0],[54.0,0.4896,233.082,1],[54.0,0.9896,146.832,2],
+  [54.5,0.2396,440.0,0],[54.5,0.2396,220.0,1],
+  [54.75,0.2396,466.164,0],[54.75,0.2396,233.082,1],
+  [55.0,0.9896,391.995,0],[55.0,0.9896,195.998,1],[55.0,1.9896,97.999,2],[56.0,0.9896,195.998,2],
+  [57.0,0.7396,466.164,0],[57.0,0.7396,233.082,1],[57.0,0.7396,195.998,2],
+  [57.75,0.2396,523.251,0],[57.75,0.2396,261.625,1],[57.75,0.2396,220.0,2],
+  [58.0,0.9896,587.33,0],[58.0,0.9896,293.665,1],[58.0,0.9896,233.082,2],
+  [59.0,0.9896,698.456,0],[59.0,0.9896,349.228,1],[59.0,0.9896,220.0,2],
+  [60.0,0.4896,587.33,0],[60.0,0.4896,293.665,1],[60.0,0.9896,233.082,2],
+  [60.5,0.2396,523.251,0],[60.5,0.2396,261.625,1],
+  [60.75,0.2396,466.164,0],[60.75,0.2396,233.082,1],
+  [61.0,0.2396,440.0,0],[61.0,0.2396,220.0,1],[61.0,0.9896,174.614,2],
+  [61.25,0.2396,466.164,0],[61.25,0.2396,233.082,1],
+  [61.5,0.2396,523.251,0],[61.5,0.2396,261.625,1],
+  [61.75,0.2396,440.0,0],[61.75,0.2396,220.0,1],
+  [62.0,0.9896,349.228,0],[62.0,0.9896,174.614,1],[62.0,0.4896,174.614,2],[62.5,0.4896,155.563,2],
+  [63.0,0.4896,698.456,0],[63.0,0.4896,349.228,1],[63.0,0.9896,146.832,2],
+  [63.5,0.4896,587.33,0],[63.5,0.4896,293.665,1],
+  [64.0,0.4896,466.164,0],[64.0,0.4896,233.082,1],[64.0,0.9896,195.998,2],
+  [64.5,0.4896,698.456,0],[64.5,0.4896,349.228,1],
+  [65.0,0.2396,783.991,0],[65.0,0.2396,391.995,1],[65.0,0.9896,155.563,2],
+  [65.25,0.2396,698.456,0],[65.25,0.2396,349.228,1],
+  [65.5,0.2396,622.254,0],[65.5,0.2396,311.127,1],
+  [65.75,0.2396,587.33,0],[65.75,0.2396,293.665,1],
+  [66.0,0.4896,622.254,0],[66.0,0.4896,311.127,1],[66.0,0.9896,130.813,2],
+  [66.5,0.4896,523.251,0],[66.5,0.4896,261.625,1],
+  [67.0,0.4896,440.0,0],[67.0,0.4896,220.0,1],[67.0,0.9896,174.614,2],
+  [67.5,0.4896,622.254,0],[67.5,0.4896,311.127,1],
+  [68.0,0.2396,698.456,0],[68.0,0.2396,349.228,1],[68.0,0.9896,146.832,2],
+  [68.25,0.2396,622.254,0],[68.25,0.2396,311.127,1],
+  [68.5,0.2396,587.33,0],[68.5,0.2396,293.665,1],
+  [68.75,0.2396,523.251,0],[68.75,0.2396,261.625,1],
+  [69.0,0.4896,587.33,0],[69.0,0.4896,293.665,1],[69.0,0.9896,116.541,2],
+  [69.5,0.2396,523.251,0],[69.5,0.2396,261.625,1],
+  [69.75,0.2396,587.33,0],[69.75,0.2396,293.665,1],
+  [70.0,0.4896,622.254,0],[70.0,0.4896,311.127,1],[70.0,0.9896,195.998,2],
+  [70.5,0.4896,587.33,0],[70.5,0.4896,293.665,1],
+  [71.0,0.4896,523.251,0],[71.0,0.4896,261.625,1],[71.0,0.9896,155.563,2],
+  [71.5,0.4896,466.164,0],[71.5,0.4896,233.082,1],
+  [72.0,0.2396,440.0,0],[72.0,0.2396,220.0,1],[72.0,0.4896,174.614,2],
+  [72.25,0.2396,466.164,0],[72.25,0.2396,233.082,1],
+  [72.5,0.2396,523.251,0],[72.5,0.2396,261.625,1],[72.5,0.4896,155.563,2],
+  [72.75,0.2396,440.0,0],[72.75,0.2396,220.0,1],
+  [73.0,0.9896,466.164,0],[73.0,0.9896,233.082,1],[73.0,0.4896,146.832,2],[73.5,0.4896,155.563,2],
+  [74.0,0.4896,146.832,2],[74.0,0.9896,233.082,2],[74.5,0.4896,130.813,2],
+  [75.0,0.4896,587.33,0],[75.0,0.4896,293.665,1],[75.0,0.4896,116.541,2],
+  [76.0,0.4896,622.254,0],[76.0,0.4896,311.127,1],[76.0,0.4896,130.813,2],
+  [77.0,0.4896,391.995,0],[77.0,0.4896,195.998,1],[77.0,0.4896,155.563,2],
+  [78.0,0.4896,369.994,0],[78.0,0.4896,184.997,1],[78.0,0.9896,146.832,2],
+  [78.5,0.2396,369.994,0],[78.5,0.2396,184.997,1],
+  [78.75,0.2396,391.995,0],[78.75,0.2396,195.998,1],
+  [79.0,0.4896,440.0,0],[79.0,0.4896,220.0,1],[79.0,0.9896,146.832,2],
+  [79.5,0.4896,293.665,0],[79.5,0.4896,146.833,1],
+  [80.0,0.4896,369.994,0],[80.0,0.4896,184.997,1],[80.0,0.9896,130.813,2],
+  [80.5,0.4896,440.0,0],[80.5,0.4896,220.0,1],
+  [81.0,0.4896,587.33,0],[81.0,0.4896,293.665,1],[81.0,0.9896,116.541,2],
+  [81.5,0.2396,587.33,0],[81.5,0.2396,293.665,1],
+  [81.75,0.2396,622.254,0],[81.75,0.2396,311.127,1],
+  [82.0,0.4896,587.33,0],[82.0,0.4896,293.665,1],[82.0,0.9896,97.999,2],
+  [82.5,0.2396,587.33,0],[82.5,0.2396,293.665,1],
+  [82.75,0.2396,622.254,0],[82.75,0.2396,311.127,1],
+  [83.0,0.4896,587.33,0],[83.0,0.4896,293.665,1],[83.0,0.9896,116.541,2],
+  [83.5,0.4896,783.991,0],[83.5,0.4896,391.995,1],
+  [84.0,0.4896,466.164,0],[84.0,0.4896,233.082,1],[84.0,0.9896,146.832,2],
+  [84.5,0.2396,440.0,0],[84.5,0.2396,220.0,1],
+  [84.75,0.2396,466.164,0],[84.75,0.2396,233.082,1],
+  [85.0,0.9896,391.995,0],[85.0,0.9896,195.998,1],[85.0,1.9896,97.999,2],[86.0,0.9896,195.998,2]
+];
+
+const MUSIC_BEATS = 86.9896;   // total loop length in beats
+const MUSIC_BPS   = 100 / 60;  // 100 BPM
+
+
+
+const MUSIC_TRACKS = [
+  { evts: MUSIC_EVT, beats: MUSIC_BEATS, bps: MUSIC_BPS }, // Bach Polonaise
+];
+let _musicTrackIdx = 0;
+
+let _musicGain = null;
+function musicBus() {
+  if (_musicGain) return _musicGain;
+  const a = audio();
+  _musicGain = a.createGain();
+  _musicGain.gain.value = 0.28;  // quiet background — well below SFX level
+  _musicGain.connect(a.destination);  // dry path, bypasses the SFX reverb
+  return _musicGain;
+}
+
+// voice 0 = melody (full gain, brighter), 1 = inner (quieter, darker), 2 = bass (warmest)
+const _VOL  = [0.09, 0.040, 0.060];   // peak gain per voice
+const _FCUT = [700,  480,   320];      // lowpass cutoff Hz per voice
+
+function _musicNote(freq, startTime, durSec, voice) {
+  if (!freq) return;
+  try {
+    const a = audio();
+    const osc = a.createOscillator(), filt = a.createBiquadFilter(), g = a.createGain();
+    osc.type = 'square';
+    osc.frequency.value = freq;
+    filt.type = 'lowpass';
+    filt.frequency.value = _FCUT[voice] ?? 600;
+    filt.Q.value = 0.5;
+    const pk = _VOL[voice] ?? 0.09;
+    g.gain.setValueAtTime(0, startTime);
+    g.gain.linearRampToValueAtTime(pk, startTime + 0.008);
+    g.gain.setValueAtTime(pk, startTime + durSec - 0.04);
+    g.gain.linearRampToValueAtTime(0, startTime + durSec);
+    osc.connect(filt); filt.connect(g); g.connect(musicBus());
+    osc.start(startTime); osc.stop(startTime + durSec + 0.02);
+  } catch(e) {}
+}
+
+// Scheduler: events have absolute beat positions, evIdx just walks the sorted array
+const _ml = { running:false, loopStart:0, evIdx:0, timer:null, evts:null, beats:0, bps:1 };
+
+function _musicTick() {
+  if (!_ml.running) return;
+  const a = audio();
+  // Retry every 200 ms until the browser grants audio (autoplay policy)
+  if (a.state === 'suspended') { _ml.timer = setTimeout(_musicTick, 200); return; }
+  // Self-terminate as soon as we leave the attract cycle
+  if (state !== 'title' && state !== 'hiscores' && state !== 'attract') { _ml.running = false; return; }
+  const LOOKAHEAD = 0.35, now = a.currentTime;
+  if (_ml.loopStart === 0) _ml.loopStart = now;
+  for (let guard = 0; guard < 500; guard++) {
+    if (_ml.evIdx >= _ml.evts.length) {
+      _ml.loopStart += _ml.beats / _ml.bps;
+      _ml.evIdx = 0;
+    }
+    const [bs, bd, hz, voice] = _ml.evts[_ml.evIdx];
+    const evTime = _ml.loopStart + bs / _ml.bps;
+    if (evTime > now + LOOKAHEAD) break;
+    _musicNote(hz * 0.5, Math.max(evTime, now), bd / _ml.bps * 0.92, voice);
+    _ml.evIdx++;
+  }
+  _ml.timer = setTimeout(_musicTick, 80);
+}
+
+function startMusic() {
+  if (_ml.running) return;
+  _ml.running = true; _ml.loopStart = 0; _ml.evIdx = 0;
+  _musicTick();
+}
+
+function stopMusic() {
+  _ml.running = false;
+  clearTimeout(_ml.timer);
+}
+
+function playLevelClearFanfare() {
+  // Happy ascending run → triumphant chord
+  [[523,0],[659,0.08],[784,0.16],[1047,0.26],[1319,0.38]].forEach(([f,t]) => tone(f,'square',0.0735,0.18,t));
+  [523,659,1047,1319].forEach(f => tone(f,'square',0.225,0.45,0.52));
+}
+
+let _introTmr = null;
+let levelReady = false;
+function startLevelIntro() {
+  clearTimeout(_introTmr);
+  levelReady = false;
+  hypLeft = 3;
+  if (level >= 2) shiftPaletteHue(Math.random() * 360);
+  levelTimer = 60; levelBonus = 0;
+  // Re-centre ship at the start of every level
+  if (ship) {
+    ship.x = W/2; ship.y = H/2;
+    ship.vx = 0; ship.vy = 0;
+    ship.angle = 0; ship.angleVel = 0;
+    ship.alive = true;
+  }
+  state = 'levelstart';
+  spawnLevel();
+  playFanfare();
+  // Show "press any key" after fanfare finishes
+  _introTmr = setTimeout(() => { levelReady = true; }, 1500);
+}
+function beginPlay() {
+  if (state !== 'levelstart') return;
+  stopMusic();
+  state = 'playing'; invTmr = 160; fireTmr = 0; heat = 0;
+  levelTimer = 60; levelBonus = 0;
+  startBeat();
+}
+
+// ============================================================
+//  GAME STATE
+// ============================================================
+let state   = 'splash';  // splash | title | playing | dead | gameover
+let score   = 0;
+let hiScore = scores[0].score;
+let lives   = 3;
+let level   = 1;
+let extraAt = 10000;
+let keys    = {};
+let fireTmr = 0;
+let invTmr  = 0;
+let ticker  = 0;          // frame counter for blinking text
+
+let ship, asteroids = [], bullets = [], particles = [], popups = [], ufo, ufoSpawnTmr;
+let hypLeft = 3;   // hyperspace jumps remaining this level
+let heat = 0;   // cannon heat 0–1: builds while trigger held, cools on release
+let titleRocks = [];
+let levelTimer = 60;   // time bonus countdown (seconds)
+let levelBonus = 0;    // bonus awarded at level complete
+let nameInput = '', nameRank = -1;          // name-entry state (-1 = not pending)
+let attractTmr = null;                     // attract-mode cycle timer
+let demoShip = null, demoFireTmr = 0;     // attract-mode auto-pilot
+
+// Ship geometry
+const SHIP = [ [0,-18], [11,13], [0,7], [-11,13] ];
+const FLAME = (t) => [ [7,9], [0, 24 + t], [-7,9] ];
+
+// ============================================================
+//  FACTORIES
+// ============================================================
+function mkAsteroid(x, y, size) {
+  const n = 9 + Math.floor(Math.random()*5);
+  const R = size===3 ? 50 : size===2 ? 28 : 13;
+  const pts = Array.from({length:n}, (_,i) => {
+    const a = (i/n)*Math.PI*2;
+    const r = R*(0.6 + Math.random()*0.75);
+    return [Math.cos(a)*r, Math.sin(a)*r];
+  });
+  const spd = ((0.5 + Math.random()*0.8) * (4-size) * 0.55 + 0.2*level) * 0.75;
+  const dir = Math.random()*Math.PI*2;
+  return {
+    x, y,
+    vx: Math.cos(dir)*spd, vy: Math.sin(dir)*spd,
+    rot: 0, rotV: (Math.random()-0.5)*0.045,
+    size, pts, r: R*0.78, color: rndColor(),
+  };
+}
+
+function mkUFO() {
+  const side = Math.random()<0.5 ? -30 : W+30;
+  const big  = level < 3 || Math.random() < 0.55;
+  return {
+    x: side, y: 90 + Math.random()*(H-180),
+    vx: side < 0 ? 1.6 : -1.6, vy: 0,
+    big, r: big ? 26 : 14,
+    fireTmr: big ? 110 : 65,
+    sinePhase: Math.random() * Math.PI * 2,
+    color: PALETTE[Math.floor(Math.random() * 3)],   // purple-ish range for UFO
+  };
+}
+
+function mkParticle(x, y, col = null) {
+  const a = Math.random()*Math.PI*2;
+  const spd = 1 + Math.random()*4;
+  return {
+    x, y,
+    vx: Math.cos(a)*spd, vy: Math.sin(a)*spd,
+    a,
+    life: 1, decay: 0.014 + Math.random()*0.022,
+    len: 6 + Math.random()*22,
+    col,
+  };
+}
+
+function burst(x, y, n=14, spd=3, col=null) {
+  for (let i=0;i<n;i++) particles.push({...mkParticle(x,y,col), vx:mkParticle(x,y).vx*(spd/3), vy:mkParticle(x,y).vy*(spd/3)});
+}
+
+// ============================================================
+//  INIT
+// ============================================================
+function initGame() {
+  // Music self-terminates in _musicTick() when state leaves attract cycle.
+  clearTimeout(attractTmr);
+  ship = { x:W/2, y:H/2, vx:0, vy:0, angle:0, angleVel:0, alive:true, thrusting:false };
+  asteroids = []; bullets = []; particles = []; popups = [];
+  ufo = null; ufoSpawnTmr = 600 + Math.random()*600;
+  score = 0; lives = 3; level = 1; extraAt = 10000;
+  fireTmr = 0; invTmr = 150; heat = 0;
+  startLevelIntro();
+}
+
+function spawnLevel() {
+  const cx = W/2, cy = H/2;
+  for (let i = 0; i < 3+level; i++) {
+    let x, y;
+    do { x=Math.random()*W; y=Math.random()*H; }
+    while (Math.hypot(x-cx,y-cy) < 160);
+    asteroids.push(mkAsteroid(x, y, 3));
+  }
+}
+
+// ============================================================
+//  ATTRACT MODE
+// ============================================================
+function startAttractCycle() {
+  resetPalette();
+  if (!_ml.running) {
+    const trk = MUSIC_TRACKS[_musicTrackIdx % MUSIC_TRACKS.length];
+    _ml.evts = trk.evts; _ml.beats = trk.beats; _ml.bps = trk.bps;
+    _musicTrackIdx++;
+  }
+  startMusic();
+  clearTimeout(attractTmr);
+  // title (10 s) → hiscores (6 s) → attract gameplay (10 s) → repeat
+  attractTmr = setTimeout(() => {
+    if (state !== 'title') return;                           // guard: player may have started a game
+    state = 'hiscores';
+    attractTmr = setTimeout(() => { if (state === 'hiscores') startAttractPlay(); }, 6000);
+  }, 10000);
+}
+
+function startAttractPlay() {
+  clearTimeout(attractTmr);
+  state = 'attract';
+  asteroids = []; bullets = []; particles = []; popups = [];
+  for (let i=0;i<6;i++)
+    asteroids.push(mkAsteroid(Math.random()*W, Math.random()*H, 1+Math.floor(Math.random()*3)));
+  demoShip = { x:W/2, y:H/2, vx:0, vy:0, angle:0, angleVel:0, thrusting:false, alive:true };
+  demoFireTmr = 40;
+  attractTmr = setTimeout(() => { if (state === 'attract') { state='title'; startAttractCycle(); } }, 10000);
+}
+
+function updateDemoShip() {
+  // Find nearest asteroid
+  let near=null, nearDist=Infinity;
+  for (const a of asteroids) {
+    const d=Math.hypot(a.x-demoShip.x, a.y-demoShip.y);
+    if (d<nearDist) { nearDist=d; near=a; }
+  }
+  if (near) {
+    // Steer toward it
+    const tgt = Math.atan2(near.y-demoShip.y, near.x-demoShip.x) + Math.PI/2;
+    let diff = ((tgt - demoShip.angle) % (Math.PI*2) + Math.PI*3) % (Math.PI*2) - Math.PI;
+    demoShip.angleVel += Math.sign(diff) * 0.007;
+  }
+  demoShip.angleVel = Math.max(-0.09, Math.min(0.09, demoShip.angleVel));
+  if (!near) demoShip.angleVel *= 0.72;
+  demoShip.angle += demoShip.angleVel;
+  // Thrust when not too close
+  demoShip.thrusting = !!(near && nearDist > 120);
+  if (demoShip.thrusting) {
+    const fa = demoShip.angle - Math.PI/2;
+    demoShip.vx += Math.cos(fa)*0.09; demoShip.vy += Math.sin(fa)*0.09;
+    const spd=Math.hypot(demoShip.vx,demoShip.vy);
+    if (spd>5) { demoShip.vx*=5/spd; demoShip.vy*=5/spd; }
+  }
+  demoShip.vx*=0.991; demoShip.vy*=0.991;
+  demoShip.x+=demoShip.vx; demoShip.y+=demoShip.vy; wrap(demoShip);
+  // Fire
+  demoFireTmr--;
+  if (demoFireTmr<=0 && near) {
+    const fa=demoShip.angle-Math.PI/2;
+    bullets.push({ x:demoShip.x+Math.cos(fa)*20, y:demoShip.y+Math.sin(fa)*20,
+      vx:Math.cos(fa)*10+demoShip.vx, vy:Math.sin(fa)*10+demoShip.vy, life:52, own:'ship' });
+    demoFireTmr=25;
+  }
+}
+
+// ============================================================
+//  UPDATE
+// ============================================================
+function wrap(o) {
+  // Standard toroidal wrap — keep coordinates in [0, W) × [0, H).
+  // Combined with 3×3 ghost rendering in drawAsteroid this is seamless:
+  // the object's position never jumps visually.
+  o.x = ((o.x % W) + W) % W;
+  o.y = ((o.y % H) + H) % H;
+}
+
+// Swept line-segment vs circle collision — tests the bullet's full trajectory
+// each frame, preventing fast-moving bullets from tunnelling through targets.
+function hitCircle(b, cx, cy, r) {
+  if (Math.hypot(b.x-cx, b.y-cy) < r) return true;       // end-point test
+  const x0=b.x-b.vx, y0=b.y-b.vy, dx=b.vx, dy=b.vy;    // start of segment
+  const fx=x0-cx, fy=y0-cy, a=dx*dx+dy*dy;
+  if (!a) return false;
+  const bb=2*(fx*dx+fy*dy), c=fx*fx+fy*fy-r*r;
+  const disc=bb*bb-4*a*c; if (disc<0) return false;
+  const sq=Math.sqrt(disc), t1=(-bb-sq)/(2*a), t2=(-bb+sq)/(2*a);
+  return (t1>=0&&t1<=1)||(t2>=0&&t2<=1);
+}
+
+// Wrap-aware bullet→circle hit: also tests the target's ghost copies near edges.
+// Fixes missed hits on asteroids whose visual polygon straddles a screen boundary.
+function hitCircleWrapped(b, cx, cy, r) {
+  if (hitCircle(b, cx, cy, r)) return true;
+  const ox = cx < 65 ? W : cx > W-65 ? -W : 0;
+  const oy = cy < 65 ? H : cy > H-65 ? -H : 0;
+  if (ox && hitCircle(b, cx+ox, cy,    r)) return true;
+  if (oy && hitCircle(b, cx,    cy+oy, r)) return true;
+  if (ox && oy && hitCircle(b, cx+ox, cy+oy, r)) return true;
+  return false;
+}
+
+// Toroidal distance — handles ship/asteroid proximity across screen edges.
+function wrapDist(x1, y1, x2, y2) {
+  let dx = Math.abs(x1-x2), dy = Math.abs(y1-y2);
+  if (dx > W/2) dx = W-dx;
+  if (dy > H/2) dy = H-dy;
+  return Math.hypot(dx, dy);
+}
+
+function update() {
+  ticker++;
+
+  // Particles run in all states
+  particles = particles.filter(p => p.life > 0);
+  particles.forEach(p => {
+    p.x += p.vx; p.y += p.vy;
+    p.vx *= 0.97; p.vy *= 0.97;
+    p.life -= p.decay;
+  });
+  popups = popups.filter(p => p.life > 0);
+  popups.forEach(p => { p.y -= 0.5; p.life -= 0.016; });
+
+  if (state === 'title' || state === 'hiscores') {
+    titleRocks.forEach(a => { a.x+=a.vx; a.y+=a.vy; a.rot+=a.rotV; wrap(a); });
+    return;
+  }
+
+  if (state === 'attract') {
+    if (asteroids.length === 0) {
+      for (let i=0;i<6;i++) asteroids.push(mkAsteroid(Math.random()*W, Math.random()*H, 1+Math.floor(Math.random()*3)));
+      demoShip.x=W/2; demoShip.y=H/2; demoShip.vx=0; demoShip.vy=0;
+    }
+    asteroids.forEach(a=>{a.x+=a.vx;a.y+=a.vy;a.rot+=a.rotV;wrap(a);});
+    bullets=bullets.filter(b=>b.life>0);
+    bullets.forEach(b=>{b.x+=b.vx;b.y+=b.vy;b.life--;wrap(b);});
+    updateDemoShip();
+    // Demo bullets vs asteroids (split/destroy, no scoring)
+    for (let bi=bullets.length-1;bi>=0;bi--) {
+      const b=bullets[bi];
+      for (let ai=asteroids.length-1;ai>=0;ai--) {
+        const a=asteroids[ai];
+        if (hitCircleWrapped(b, a.x, a.y, a.r)) {
+          burst(a.x,a.y,8+a.size*5,2+a.size,a.color);
+          if (a.size>1) {
+            const off=a.r*0.4;
+            asteroids.push(mkAsteroid(a.x+(Math.random()-.5)*off,a.y+(Math.random()-.5)*off,a.size-1));
+            asteroids.push(mkAsteroid(a.x+(Math.random()-.5)*off,a.y+(Math.random()-.5)*off,a.size-1));
+          }
+          asteroids.splice(ai,1); b.life=0; break;
+        }
+      }
+    }
+    return;
+  }
+
+  if (state === 'splash' || state === 'gameover' || state === 'dead' || state === 'levelstart' || state === 'nameentry' || state === 'levelcomplete' || state === 'quitprompt') return;
+  levelTimer = Math.max(0, levelTimer - 1/60);
+
+  // ── Ship controls ──
+  if (ship.alive) {
+    // Rotation: accelerate while key held, quick decel (~0.2 s) on release
+    const rotL = !!keys['ArrowLeft'], rotR = !!keys['ArrowRight'];
+    if (rotL) ship.angleVel -= 0.008;
+    if (rotR) ship.angleVel += 0.008;
+    ship.angleVel = Math.max(-0.10, Math.min(0.10, ship.angleVel));
+    if (!rotL && !rotR) ship.angleVel *= 0.878;    // decel to ~2% in 30 frames (~0.5 s)
+    ship.angle += ship.angleVel;
+    ship.thrusting = !!keys['ArrowUp'];
+    if (ship.thrusting) {
+      const fa = ship.angle - Math.PI/2;
+      ship.vx += Math.cos(fa)*0.12; ship.vy += Math.sin(fa)*0.12;
+      const spd = Math.hypot(ship.vx, ship.vy);
+      if (spd > 9) { ship.vx *= 9/spd; ship.vy *= 9/spd; }
+      if (Math.random() < 0.45) {
+        noiseBurst(36, 0.16, 0.32, 0.30);  // sub-bass rumble
+        noiseBurst(72, 0.12, 0.18, 0.70);  // low-mid body
+      }
+    }
+    // Hyperspace (max 3 per level)
+    if (keys['ArrowDown'] && !ship._hyp && hypLeft > 0) {
+      hypLeft--;
+      ship._hyp = true;
+      ship.x = 60 + Math.random()*(W-120); ship.y = 60 + Math.random()*(H-120);
+      ship.vx = 0; ship.vy = 0;
+      invTmr = 90;
+      burst(ship.x, ship.y, 20, 4, '#8844CC');
+      tone(200,'sawtooth',0.3,0.3); tone(400,'sawtooth',0.2,0.2,0.15);
+    }
+    if (!keys['ArrowDown']) ship._hyp = false;
+
+    // Fire — heat builds per frame while trigger held; cools 2× faster on release
+    // heat < 0.5 → machine gun (~15/sec) | heat = 1.0 → 1 shot/sec
+    const firing = !!(keys[' '] || keys['Space']);
+    if (firing) {
+      heat = Math.min(1, heat + 0.012);  // 0→50% in ~0.67s (machine gun), 50→100% in ~0.67s more
+    } else {
+      heat = Math.max(0, heat - 0.008);  // 100→50% in ~1.5s on release
+    }
+    if (firing && fireTmr <= 0) {
+      const fa = ship.angle - Math.PI/2;
+      const spd = 10;
+      bullets.push({
+        x: ship.x + Math.cos(fa)*20, y: ship.y + Math.sin(fa)*20,
+        vx: Math.cos(fa)*spd + ship.vx, vy: Math.sin(fa)*spd + ship.vy,
+        life: 52, own: 'ship',
+      });
+      SFX.fire();
+      fireTmr = heat < 0.5 ? 3 : Math.round(3 + (heat - 0.5) * 114); // 3 frames → 60 at max
+    }
+
+    ship.vx *= 0.991; ship.vy *= 0.991;
+    ship.x += ship.vx; ship.y += ship.vy;
+    wrap(ship);
+  }
+
+  if (fireTmr > 0) fireTmr--;
+  if (invTmr  > 0) invTmr--;
+
+  // ── Asteroids ──
+  asteroids.forEach(a => { a.x+=a.vx; a.y+=a.vy; a.rot+=a.rotV; wrap(a); });
+
+  // ── Bullets ──
+  bullets = bullets.filter(b=>b.life>0);
+  bullets.forEach(b => { b.x+=b.vx; b.y+=b.vy; b.life--; wrap(b); });
+
+  // ── UFO ──
+  ufoSpawnTmr--;
+  if (!ufo && ufoSpawnTmr <= 0 && asteroids.length > 0) {
+    ufo = mkUFO();
+    startUFOSound(ufo.big);
+    ufoSpawnTmr = 700 + Math.random()*500;
+  }
+  if (ufo) {
+    ufo.x += ufo.vx; ufo.y += ufo.vy;
+    // Snake toward player: sine wave oscillation biased toward player's y
+    ufo.sinePhase += 0.032;
+    const dyToPlayer = ship.alive ? (ship.y - ufo.y) : 0;
+    const bias = Math.max(-1.0, Math.min(1.0, dyToPlayer * 0.012));
+    ufo.vy = Math.sin(ufo.sinePhase) * 1.6 + bias;
+    ufo.fireTmr--;
+    if (ufo.fireTmr <= 0) {
+      const aim = ufo.big
+        ? Math.random()*Math.PI*2
+        : Math.atan2(ship.y-ufo.y, ship.x-ufo.x);
+      bullets.push({ x:ufo.x,y:ufo.y, vx:Math.cos(aim)*1.65,vy:Math.sin(aim)*1.65, life:70, own:'ufo' });
+      tone(ufo.big?1200:800,'square',0.06,0.12);
+      ufo.fireTmr = ufo.big ? 110 : 65;
+    }
+    if (ufo.x < -80 || ufo.x > W+80 || ufo.y < -80 || ufo.y > H+80) {
+      ufo = null; stopUFOSound();
+    }
+  }
+
+  // ── Collisions: ship bullets vs world ──
+  for (let bi = bullets.length-1; bi >= 0; bi--) {
+    const b = bullets[bi];
+    if (b.own !== 'ship') continue;
+
+    // vs asteroids
+    let hit = false;
+    for (let ai = asteroids.length-1; ai >= 0; ai--) {
+      const a = asteroids[ai];
+      if (hitCircleWrapped(b, a.x, a.y, a.r)) {
+        const pts = [0, 10, 25, 50][a.size];
+        score += pts;
+        if (score >= extraAt) { if (lives < 5) { lives++; SFX.life(); } extraAt+=10000; }
+        if (hiScore < score) hiScore = score;
+        popups.push({ x: a.x, y: a.y, text: String(pts), life: 1 });
+        [SFX.smlBoom, SFX.medBoom, SFX.bigBoom][a.size-1]?.();
+        burst(a.x, a.y, 8+a.size*5, 2+a.size, a.color);
+        if (a.size > 1) {
+          const off = a.r*0.4;
+          asteroids.push(mkAsteroid(a.x+(Math.random()-.5)*off, a.y+(Math.random()-.5)*off, a.size-1));
+          asteroids.push(mkAsteroid(a.x+(Math.random()-.5)*off, a.y+(Math.random()-.5)*off, a.size-1));
+        }
+        asteroids.splice(ai, 1);
+        b.life = 0; hit = true; break;
+      }
+    }
+    if (hit) continue;
+
+    // vs UFO
+    if (ufo && hitCircleWrapped(b, ufo.x, ufo.y, ufo.r)) {
+      const pts = ufo.big ? 500 : 2000;
+      score += pts;
+      if (hiScore < score) hiScore = score;
+      if (score >= extraAt) { if (lives < 5) { lives++; SFX.life(); } extraAt+=10000; }
+      popups.push({ x: ufo.x, y: ufo.y, text: String(pts), life: 1 });
+      burst(ufo.x, ufo.y, 30, 4, ufo.color);
+      SFX.medBoom();
+      stopUFOSound(); ufo = null;
+      b.life = 0;
+    }
+  }
+
+  // ── UFO bullets vs ship ──
+  if (ship.alive && invTmr <= 0) {
+    for (const b of bullets) {
+      if (b.own !== 'ufo') continue;
+      if (hitCircleWrapped(b, ship.x, ship.y, 13)) { killShip(); break; }
+    }
+  }
+
+  // ── UFO body vs ship ──
+  if (ufo && ship.alive && invTmr <= 0) {
+    if (wrapDist(ufo.x, ufo.y, ship.x, ship.y) < ufo.r + 11) { killShip(); }
+  }
+
+  // ── Asteroids vs ship ──
+  if (ship.alive && invTmr <= 0) {
+    for (const a of asteroids) {
+      if (wrapDist(a.x, a.y, ship.x, ship.y) < a.r + 11) { killShip(); break; }
+    }
+  }
+
+  // ── Next level ──
+  if (asteroids.length === 0 && !ufo && state === 'playing') {
+    stopBeat(); stopUFOSound();
+    levelBonus = Math.round(levelTimer / 60 * 5000);
+    score += levelBonus;
+    if (hiScore < score) hiScore = score;
+    burst(W/2, H/2, 25, 5, rndColor());
+    burst(W/2, H/2, 25, 5, rndColor());
+    playLevelClearFanfare();
+    state = 'levelcomplete';
+    setTimeout(() => { if (state === 'levelcomplete') { level++; beatSpeed = 800; startLevelIntro(); } }, 3000);
+  }
+}
+
+function killShip() {
+  burst(ship.x, ship.y, 40, 6, '#6898D0');
+  SFX.die();
+  ship.alive = false;
+  lives--;
+  stopBeat(); stopUFOSound();
+  if (lives <= 0) {
+    // Always show GAME OVER for 3 s, then branch to name entry or title.
+    const goToName = qualifiesForBoard(score);
+    if (goToName) { nameInput = ''; nameRank = scoreRank(score); }
+    state = 'gameover';
+    setTimeout(() => {
+      if (state !== 'gameover') return;
+      if (goToName) { state = 'nameentry'; } else { state = 'title'; startAttractCycle(); }
+    }, 3000);
+  } else {
+    state = 'dead';
+    setTimeout(() => {
+      if (state !== 'dead') return;
+      ship.x=W/2; ship.y=H/2; ship.vx=0; ship.vy=0; ship.angle=0; ship.angleVel=0; ship.alive=true;
+      state='playing'; invTmr=200; fireTmr=0; heat=0;
+      startBeat();
+    }, 2800);
+  }
+}
+
+// ============================================================
+//  DRAW
+// ============================================================
+
+// Draw asteroid with wrap-around (appear on opposite edges)
+function drawAsteroid(a) {
+  // Render at all 9 toroidal positions; canvas clips anything off-screen.
+  // Eliminates wrap-edge "snap" glitches for any asteroid size or wrap-buffer width.
+  for (let ox = -1; ox <= 1; ox++) {
+    for (let oy = -1; oy <= 1; oy++) {
+      const px = a.x + ox * W, py = a.y + oy * H;
+      if (px > -80 && px < W+80 && py > -80 && py < H+80)
+        xfPoly(a.pts, px, py, a.rot, 1, a.color);
+    }
+  }
+}
+
+function drawShip(s) {
+  if (!s.alive) return;
+  if (invTmr > 0 && Math.floor(invTmr/5)%2===0) return;
+  xfPoly(SHIP, s.x, s.y, s.angle);
+  if (s.thrusting && Math.random()>.25) {
+    const fl = FLAME(Math.random()*10).map(([px,py]) => {
+      const [rx,ry] = rot(px,py,s.angle);
+      return [s.x+rx, s.y+ry];
+    });
+    ctx.beginPath();
+    ctx.moveTo(fl[0][0],fl[0][1]);
+    fl.slice(1).forEach(([x,y])=>ctx.lineTo(x,y));
+    ctx.strokeStyle = ORG; ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+}
+
+function drawUFO(u) {
+  const {x, y, big, color} = u;
+  const sc = big ? 1 : 0.55;
+  const w  = 34 * sc,   // wing half-span
+        sw = 17 * sc,   // dome-shoulder half-width
+        sh =  5 * sc,   // shoulder height above hull rim
+        dh = 14 * sc,   // dome height above shoulder
+        bw = 24 * sc,   // belly half-span
+        bd =  8 * sc;   // belly depth below hull rim
+
+  // ── Upper body: flat wings angling up to smooth dome arc ─────────
+  // Hull rim is at y; shoulders at y-sh; dome peak at y-sh-dh
+  const hull = [[x - w, y], [x - sw, y - sh]];
+  for (let i = 0; i <= 14; i++) {
+    const a = Math.PI * (1 - i / 14);          // π → 0 (left shoulder → peak → right shoulder)
+    hull.push([x + Math.cos(a) * sw, (y - sh) - Math.sin(a) * dh]);
+  }
+  hull.push([x + sw, y - sh], [x + w, y]);
+  vPoly(hull, true, 1, color);
+
+  // ── Belly: smooth downward arc below hull rim ─────────────────────
+  const belly = [];
+  for (let i = 0; i <= 12; i++) {
+    const t = i / 12;
+    belly.push([x - bw + 2 * bw * t, y + Math.sin(t * Math.PI) * bd]);
+  }
+  vPoly(belly, false, 0.85, color);
+
+  // ── Three dome panel stripes ──────────────────────────────────────
+  // Positioned ~22% up into the dome, matching SVG panel line placement
+  const psy = y - sh - dh * 0.22;
+  const sl  = sw * 0.22;   // stripe half-length ≈ 3.7
+  const gap = sw * 0.60;   // centre-to-centre spacing ≈ 10.2
+  for (let i = -1; i <= 1; i++) {
+    vLine(x + i * gap - sl, psy, x + i * gap + sl, psy, 0.7, color);
+  }
+}
+
+function drawPopups() {
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '20px "Bungee Hairline", sans-serif';
+  popups.forEach(p => {
+    ctx.globalAlpha = Math.min(1, p.life * 1.5);
+    ctx.fillStyle = '#ff00ff';
+    ctx.fillText(p.text, p.x, p.y);
+  });
+  ctx.globalAlpha = 1;
+}
+function drawParticles() {
+  ctx.lineWidth = 1.2;
+  particles.forEach(p => {
+    const len = p.len * p.life;
+    ctx.globalAlpha = p.life;
+    ctx.strokeStyle = p.col || PC;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x - Math.cos(p.a)*len, p.y - Math.sin(p.a)*len);
+    ctx.stroke();
+  });
+  ctx.globalAlpha = 1;
+}
+
+function drawHUD() {
+  // Score
+  vText(String(score).padStart(6,'0'), 18, 26, 26, 'left');
+  // Hi score label + value
+  vText('HI', W/2-40, 18, 13, 'right', 0.55);
+  vText(String(hiScore).padStart(6,'0'), W/2+40, 18, 22, 'left');
+  // Level + hyperspace counter
+  vText('LEV '+level, W-16, 26, 18, 'right');
+  vText('HYP  '+hypLeft, W-16, 50, 14, 'right', 0.6);
+  // Lives — tiny ship icons
+  for (let i=0; i<lives; i++) {
+    const lx = 20+i*24, ly = 56, sc=0.52;
+    xfPoly(SHIP.map(([px,py])=>[px*sc, py*sc]), lx, ly, 0, 0.85);
+  }
+  // Cannon heat gauge — thin bar at bottom center, teal → orange → red, 50% opacity
+  const gw=180, gh=5, gx=W/2-90, gy=H-10;
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  ctx.fillStyle='rgba(255,255,255,0.14)';
+  ctx.fillRect(gx, gy, gw, gh);
+  if (heat > 0.005) {
+    const grad=ctx.createLinearGradient(gx, 0, gx+gw, 0);
+    grad.addColorStop(0,   '#3CC8A4');
+    grad.addColorStop(0.5, '#ff9620');
+    grad.addColorStop(1,   '#ff4444');
+    ctx.fillStyle=grad;
+    ctx.fillRect(gx, gy, gw*heat, gh);
+  }
+  ctx.restore();
+  vText('CANNON', gx-5, gy+gh/2, 10, 'right', 0, 'rgba(255,255,255,0.4)');
+  // Time bonus countdown — bottom right
+  const bonusLeft = Math.round(Math.ceil(levelTimer) / 60 * 5000);
+  if (bonusLeft > 0)
+    vText('BONUS  ' + String(bonusLeft).padStart(4,'0'), W-16, H-16, 13, 'right', 0.5);
+}
+
+function endSplash() {
+  if (state !== 'splash') return;
+  state = 'title';
+  startAttractCycle();
+}
+function drawSplash() {
+  ctx.font = '72px "Bungee Hairline", sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = PC;
+  ctx.fillText('ASTERISK*IDS', W/2, H/2);
+  if (Math.floor(ticker/32)%2===0)
+    vText('PRESS ANY KEY', W/2, H/2+70, 15, 'center', 0.6);
+}
+function drawTitle() {
+  titleRocks.forEach(drawAsteroid);
+  ctx.font = '72px "Bungee Hairline", sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = PC;
+  ctx.fillText('ASTERISK*IDS', W/2, H/2-45);
+  if (Math.floor(ticker/32)%2===0)
+    vText('PRESS SPACE TO START', W/2, H/2+10, 21);
+  vText('CONTROLS', W/2, H/2+42, 15, 'center', 0.9, PALETTE[4]);
+  vText('USE CURSOR KEYS OR WASD:', W/2, H/2+60, 12, 'center', 0.6, PALETTE[4]);
+  vText('LEFT and RIGHT \u2014 ROTATE', W/2, H/2+75, 12, 'center', 0.6, PALETTE[4]);
+  vText('UP \u2014 THRUST', W/2, H/2+90, 12, 'center', 0.6, PALETTE[4]);
+  vText('DOWN \u2014 HYPERSPACE', W/2, H/2+105, 12, 'center', 0.6, PALETTE[4]);
+  vText('SPACE \u2014 FIRE', W/2, H/2+120, 12, 'center', 0.6, PALETTE[4]);
+  vText('ESC \u2014 EXIT TO TITLE', W/2, H/2+135, 12, 'center', 0.6, PALETTE[4]);
+  if (hiScore > 0) {
+    vText('HIGH SCORE', W/2, H/2+172, 18, 'center', 0.7, '#FF00FF');
+    vText(hiScore + ' \u2014 ' + scores[0].name, W/2, H/2+196, 23, 'center', 1, '#FF00FF');
+  }
+}
+
+function drawHiScores() {
+  titleRocks.forEach(drawAsteroid);
+  vText('HIGH SCORES', W/2, 68, 40);
+  scores.forEach((e, i) => {
+    const y = 122 + i * 40;
+    let col;
+    if (e.score === 0) {
+      // Empty slot — half brightness
+      col = 'rgba(255,255,255,0.5)';
+    } else {
+      // Filled slot — slowly pulsate through palette, each row offset in phase
+      const phase = ticker * 0.035 + i * (PALETTE.length / scores.length);
+      col = PALETTE[Math.floor(phase) % PALETTE.length];
+    }
+    vText(String(i+1).padStart(2,' ')+'.', W/2-190, y, 20, 'left', 1, col);
+    vText(e.name,                          W/2-110, y, 20, 'left', 1, col);
+    vText(String(e.score).padStart(8,'0'), W/2+200, y, 20, 'right',1, col);
+  });
+  if (Math.floor(ticker/30)%2===0) vText('PRESS SPACE TO PLAY', W/2, 552, 15);
+}
+
+function drawNameEntry() {
+  vText('NEW HIGH SCORE', W/2, 50, 34, 'center', 1, PALETTE[4]);
+  vText('ENTER YOUR INITIALS', W/2, 86, 15, 'center', 0.6);
+  // 3-char slots with blinking cursor
+  const cur = nameInput.length;
+  const chars = (nameInput + '   ').slice(0,3).split('').map((c,i) =>
+    (i===cur && Math.floor(ticker/16)%2===0) ? '_' : c
+  ).join('  ');
+  vText(chars, W/2, 136, 58);
+  if (nameInput.length===3 && Math.floor(ticker/26)%2===0)
+    vText('PRESS ENTER TO CONFIRM', W/2, 182, 14);
+  // Preview scoreboard with new entry highlighted
+  vLine(W/2-210, 200, W/2+210, 200, 0.2);
+  const board = previewBoard((nameInput+'AAA').slice(0,3), score);
+  board.forEach((e, i) => {
+    const y = 218 + i*33;
+    const isNew = i===nameRank && e.score===score;
+    const col = isNew ? (Math.floor(ticker/14)%2===0 ? PALETTE[4] : PALETTE[0]) : null;
+    const nm  = isNew ? (nameInput+'___').slice(0,3) : e.name;
+    vText(String(i+1)+'.', W/2-185, y, 16, 'left', 1, col);
+    vText(nm,              W/2-115, y, 16, 'left', 1, col);
+    vText(String(e.score).padStart(7,'0'), W/2+185, y, 16, 'right',1, col);
+  });
+}
+
+function drawLevelComplete() {
+  drawParticles();
+  vText('LEVEL ' + level + ' CLEARED', W/2, H/2 - 52, 46, 'center', 1, PALETTE[4]);
+
+  if (levelBonus > 0)
+    vText('TIME BONUS  +' + levelBonus, W/2, H/2 + 16, 20, 'center', 0.8, '#ff00ff');
+  vText('SCORE  ' + String(score).padStart(6,'0'), W/2, H/2 + 50, 24);
+}
+
+function drawGameOver() {
+  ctx.font = '72px "Bungee Hairline", sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#FF00FF';
+  ctx.fillText('GAME OVER', W/2, H/2-50);
+  vText('SCORE  '+score, W/2, H/2+20, 26);
+  if (score > 0 && score >= hiScore && Math.floor(ticker/28)%2===0)
+    vText('NEW HIGH SCORE!', W/2, H/2+68, 20);
+  const sub = nameRank >= 0 ? 'HALL OF FAME — ENTER YOUR NAME' : 'RETURNING TO TITLE...';
+  vText(sub, W/2, H/2+110, 14, 'center', 0.5);
+}
+
+// ============================================================
+//  QUIT PROMPT
+// ============================================================
+let _quitFrom = null;   // state we came from when Escape was pressed
+
+function drawQuitPrompt() {
+  // Draw the frozen game scene underneath
+  asteroids.forEach(drawAsteroid);
+  if (ufo) drawUFO(ufo);
+  bullets.forEach(b => { ctx.globalAlpha = b.own==='ufo' ? 1 : 0.2+b.life/52*0.8; vAsterisk(b.x, b.y, 4, b.own === 'ufo' ? '#ff00ff' : '#3CC8A4'); }); ctx.globalAlpha=1;
+  drawParticles();
+  drawShip(ship);
+  drawHUD();
+  // Dark overlay
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0, 0, W, H);
+  // Prompt
+  vText('QUIT?', W/2, H/2 - 28, 52, 'center', 1, PALETTE[0]);
+  vText('Y  /  N', W/2, H/2 + 34, 28, 'center', 0.55);
+}
+
+// ============================================================
+//  MAIN LOOP
+// ============================================================
+let last = 0;
+let starAngle = 0;
+function loop(ts) {
+  if (ts - last >= 15.5) {
+    starAngle += Math.min(ts - last, 50) / 1000 * Math.PI / 50;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0,0,W,H);
+    drawStars();
+
+    if (state === 'splash') {
+      drawSplash();
+    } else if (state === 'title') {
+      drawTitle();
+    } else if (state === 'hiscores') {
+      drawHiScores();
+    } else if (state === 'attract') {
+      asteroids.forEach(drawAsteroid);
+      if (demoShip) drawShip(demoShip);
+      bullets.forEach(b => { ctx.globalAlpha = 0.2+b.life/52*0.8; vAsterisk(b.x,b.y,4,'#3CC8A4'); }); ctx.globalAlpha=1;
+      drawParticles();
+      vText('DEMO', W/2, H/2, 52, 'center', 1, 'rgba(255,255,255,0.07)');
+      if (Math.floor(ticker/30)%2===0) vText('PRESS SPACE TO PLAY', W/2, H-28, 15);
+    } else if (state === 'nameentry') {
+      drawNameEntry();
+    } else if (state === 'levelcomplete') {
+      drawLevelComplete();
+    } else if (state === 'levelstart') {
+      asteroids.forEach(drawAsteroid);
+      drawHUD();
+      vText('LEVEL ' + level,  W/2, H/2 - 44, 52);
+      vText('READY PLAYER 1',  W/2, H/2 + 20, 24);
+      if (levelReady && Math.floor(ticker/22)%2===0)
+        vText('PRESS ANY KEY', W/2, H/2 + 68, 17);
+    } else if (state === 'gameover') {
+      drawParticles();
+      drawGameOver();
+    } else if (state === 'quitprompt') {
+      drawQuitPrompt();
+    } else {
+      // playing | dead
+      asteroids.forEach(drawAsteroid);
+      if (ufo) drawUFO(ufo);
+      bullets.forEach(b => {
+        ctx.globalAlpha = b.own==='ufo' ? 1 : 0.2+b.life/52*0.8;
+        vAsterisk(b.x, b.y, 4, b.own==='ufo' ? '#ff00ff' : '#3CC8A4');
+      }); ctx.globalAlpha=1;
+      drawParticles();
+      drawPopups();
+      drawShip(ship);
+      drawHUD();
+      if (state === 'dead' && Math.floor(ticker/22)%2===0)
+        vText('SHIP DESTROYED', W/2, H/2, 28);
+    }
+
+    update();
+    last = ts;
+  }
+  requestAnimationFrame(loop);
+}
+
+// ============================================================
+//  INPUT
+// ============================================================
+const WASD_MAP = { w:'ArrowUp', a:'ArrowLeft', s:'ArrowDown', d:'ArrowRight' };
+window.addEventListener('keydown', e => {
+  if (WASD_MAP[e.key]) keys[WASD_MAP[e.key]] = true;
+  keys[e.key] = true;
+  if ([' ','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Escape'].includes(e.key)) e.preventDefault();
+  // Wake the AudioContext on first user gesture; the _musicTick retry loop
+  // will pick it up and start scheduling notes on its next iteration (~200ms).
+  if (ac && ac.state === 'suspended') ac.resume();
+
+  // Splash: any key skips to title (and wakes AudioContext)
+  if (state === 'splash') { endSplash(); return; }
+
+  // Name entry
+  if (state === 'nameentry') {
+    if (/^[A-Za-z]$/.test(e.key) && nameInput.length < 3) {
+      nameInput += e.key.toUpperCase();
+    } else if (e.key === 'Backspace') {
+      nameInput = nameInput.slice(0, -1);
+    } else if ((e.key === 'Enter' || e.key === ' ') && nameInput.length === 3) {
+      insertScore(nameInput, score);
+      if (score > hiScore) hiScore = score;
+      nameRank = -1;          // clear pending flag before showing GAME OVER
+      state = 'gameover';
+      setTimeout(() => { if (state==='gameover') { state='title'; startAttractCycle(); } }, 3000);
+    }
+    return;
+  }
+
+  if (state === 'levelstart' && levelReady) { beginPlay(); return; }
+
+  // Any key starts game from attract/hiscores screens
+  if (state === 'hiscores' || state === 'attract') {
+    if (e.key === ' ') { clearTimeout(attractTmr); initGame(); }
+    return;
+  }
+
+  // Escape during a game session → pause and ask
+  if (e.key === 'Escape') {
+    const inGame = state === 'playing' || state === 'dead' ||
+                   state === 'levelstart' || state === 'levelcomplete';
+    if (inGame) {
+      _quitFrom = state;
+      stopBeat(); stopUFOSound();
+      state = 'quitprompt';
+      return;
+    }
+  }
+
+  // Quit-prompt Y / N
+  if (state === 'quitprompt') {
+    if (e.key === 'y' || e.key === 'Y') {
+      // Abandon game — back to title
+      stopBeat(); stopUFOSound();
+      asteroids = []; bullets = []; particles = []; popups = []; ufo = null;
+      state = 'title';
+      startAttractCycle();
+    } else if (e.key === 'n' || e.key === 'N' || e.key === 'Escape') {
+      // Resume
+      state = _quitFrom;
+      if (state === 'playing') startBeat();
+      else if (state === 'dead') startBeat();
+      if (ufo) startUFOSound(ufo.big);
+    }
+    return;
+  }
+
+  if (e.key === ' ') {
+    if (state === 'title')         { clearTimeout(attractTmr); initGame(); }
+    else if (state === 'hiscores') { clearTimeout(attractTmr); initGame(); }
+    else if (state === 'gameover') {
+      if (nameRank >= 0) { state = 'nameentry'; }
+      else { state = 'hiscores'; }
+    }
+  }
+});
+window.addEventListener('keyup', e => { if (WASD_MAP[e.key]) keys[WASD_MAP[e.key]] = false; keys[e.key] = false; });
+
+// ============================================================
+//  BOOT
+// ============================================================
+// Starfield
+const STARS = Array.from({length: 200}, () => ({
+  x: Math.random() * W,
+  y: Math.random() * H,
+  r: Math.random() < 0.65 ? 0.6 : 1.1,
+  phase: Math.random() * Math.PI * 2,
+  speed: 0.018 + Math.random() * 0.045,
+}));
+function drawStars() {
+  ctx.save();
+  ctx.translate(W/2, H/2);
+  ctx.rotate(starAngle);
+  ctx.translate(-W/2, -H/2);
+  STARS.forEach(s => {
+    s.phase += s.speed;
+    const alpha = 0.15 + Math.abs(Math.sin(s.phase)) * 0.55;
+    ctx.fillStyle = `rgba(255,255,255,${alpha.toFixed(2)})`;
+    ctx.fillRect(s.x - s.r/2, s.y - s.r/2, s.r, s.r);
+  });
+  ctx.restore();
+}
+
+// Seed title screen asteroids
+for (let i=0;i<7;i++) {
+  const a = mkAsteroid(Math.random()*W, Math.random()*H, 1+Math.floor(Math.random()*3));
+  titleRocks.push(a);
+}
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
