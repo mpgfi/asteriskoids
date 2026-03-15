@@ -1,0 +1,3388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ASTER*IDS</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #312c28;
+    display: flex; justify-content: center; align-items: center;
+    overflow: hidden;
+  }
+  #bezel {
+    position: relative;
+    background: #0d0d0d;
+    border-radius: 18px;
+    padding: 14px 16px 9px;
+    box-shadow:
+      inset 0 0 40px rgba(0,0,0,0.9),
+      0 0 60px rgba(0,0,0,0.8),
+      0 0 4px #333;
+    border: 3px solid #222;
+  }
+  #screen {
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow:
+      inset 0 0 30px rgba(0,255,60,0.04),
+      0 0 2px rgba(0,255,60,0.15);
+  }
+  canvas {
+    display: block;
+    border-radius: 6px;
+  }
+  #overlay { display: none; }
+  #bezel-label {
+    text-align: center;
+    margin-top: 7px;
+    font-family: 'Bungee Hairline', sans-serif;
+    font-size: 8px;
+    letter-spacing: 3px;
+    color: #444;
+    text-transform: lowercase;
+  }
+  #bezel-label a {
+    color: inherit;
+    text-decoration: none;
+  }
+  #bezel-label a:hover {
+    color: #888;
+    text-decoration: underline;
+  }
+</style>
+</head>
+<body>
+
+<div id="bezel">
+  <div id="screen">
+    <canvas id="game"></canvas>
+    <div id="overlay"></div>
+  </div>
+  <div id="bezel-label"><a href="mailto:magnus@mpgfi.se" style="opacity:0.3"><svg height="15" viewBox="0 0 200 217.5" xmlns="http://www.w3.org/2000/svg"><polygon points="1.1 1 199.4 1 199.4 216.4 1.1 216.4 1.1 1" fill="#515151"/><path d="M57.7,38.2c8.3-6.5,17.8-11.2,28.5-11.3,12,0,20.4,4.3,25.6,13.2,4.3-3.5,8.5-6.5,13.2-9,5.2-2.7,10.9-4.1,17.2-4.2,8.2,0,15.1,2.6,20.6,7.9,5.5,5.3,8.3,13,8.5,23.1v73.5h-28.6v-64.2c0-2.7,0-5.3-.3-8-.2-2.5-1-4.6-2.4-6.3-1.2-1.5-3.4-2.4-6.8-2.5-8,.2-14.3,4.7-18.8,11.1v70h-28.3s0-64.2,0-64.2c.2-7.6.5-16.6-9.5-16.8-8,.2-14.3,4.7-18.8,11.1v70h-28.3V29h28.3v9.2h0Z" fill="#999"/><polygon points="57.7 131.4 86.1 131.4 86.1 159.7 57.7 159.7 57.7 131.4" fill="#999"/><polygon points="114.4 131.4 142.7 131.4 142.7 159.7 114.4 159.7 114.4 131.4" fill="#999"/><polygon points="29.4 159.7 57.7 159.7 57.7 188 29.4 188 29.4 159.7" fill="#999"/><polygon points="86.1 159.7 114.4 159.7 114.4 188 86.1 188 86.1 159.7" fill="#999"/><polygon points="142.7 159.7 171.1 159.7 171.1 188 142.7 188 142.7 159.7" fill="#999"/></svg></a></div>
+</div>
+
+<script>
+// ============================================================
+//  ASTER*IDS — Vector Arcade
+//  Controls: Arrow keys to rotate/thrust  |  Space to fire
+//  Down arrow = Hyperspace
+// ============================================================
+
+const W = 983, H = 609;
+const VERSION = '3.15';
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const dpr = window.devicePixelRatio || 1;
+canvas.width  = W * dpr;
+canvas.height = H * dpr;
+canvas.style.width  = W + 'px';
+canvas.style.height = H + 'px';
+
+// Fit bezel to viewport
+(function resize() {
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const scale = Math.min((vw - 120) / (W + 32), (vh - 120) / (H + 30));
+  const s = Math.max(0.4, scale);
+  document.getElementById('bezel').style.transform = `scale(${s})`;
+  document.getElementById('bezel').style.transformOrigin = 'center center';
+})();
+window.addEventListener('resize', () => {
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const scale = Math.min((vw - 120) / (W + 32), (vh - 120) / (H + 30));
+  const s = Math.max(0.4, scale);
+  document.getElementById('bezel').style.transform = `scale(${s})`;
+});
+
+// Colours
+const PC  = '#ffffff';
+const RED = '#ff4444';
+const ORG = '#ff9620';
+
+function hexToHsl(hex) {
+  let r=parseInt(hex.slice(1,3),16)/255, g=parseInt(hex.slice(3,5),16)/255, b=parseInt(hex.slice(5,7),16)/255;
+  const max=Math.max(r,g,b), min=Math.min(r,g,b); let h,s,l=(max+min)/2;
+  if (max===min) { h=s=0; } else {
+    const d=max-min; s=l>0.5?d/(2-max-min):d/(max+min);
+    switch(max){ case r:h=((g-b)/d+(g<b?6:0))/6;break; case g:h=((b-r)/d+2)/6;break; case b:h=((r-g)/d+4)/6;break; }
+  }
+  return [h*360,s*100,l*100];
+}
+function hslToHex(h,s,l) {
+  h=((h%360)+360)%360; s/=100; l/=100;
+  const a=s*Math.min(l,1-l);
+  const f=n=>{ const k=(n+h/30)%12; return l-a*Math.max(-1,Math.min(k-3,9-k,1)); };
+  return '#'+[f(0),f(8),f(4)].map(x=>Math.round(x*255).toString(16).padStart(2,'0')).join('');
+}
+function hexToRgb(hex) {
+  return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
+}
+// Named hue centres: red, yellow, green, cyan, blue, purple, magenta
+const PALETTE_HUES = [0, 55, 130, 185, 235, 270, 320];
+// Generate 16 bright colours within ±35° of a centre hue
+function generatePalette(centerHue) {
+  const spread = 70;
+  return Array.from({length: 16}, (_, i) => {
+    const t = i / 15;
+    const hue = centerHue - spread / 2 + t * spread;
+    const sat = 88 + Math.sin(t * Math.PI) * 7;   // 81–95%, richest in the middle
+    const lit = 60 + Math.sin(t * Math.PI) * 6;   // 54–66%, brightest in the middle
+    return hslToHex(hue, sat, lit);
+  });
+}
+let PALETTE = generatePalette(270);  // default: purple family
+let currentPalette = [...PALETTE];
+function rndColor() { return currentPalette[Math.floor(Math.random() * currentPalette.length)]; }
+function shiftPaletteHue(_unused) {
+  const base = PALETTE_HUES[Math.floor(Math.random() * PALETTE_HUES.length)];
+  PALETTE = generatePalette(base + (Math.random() - 0.5) * 20);
+  currentPalette = [...PALETTE];
+}
+function resetPalette() { PALETTE = generatePalette(270); currentPalette = [...PALETTE]; }
+
+// ── Global leaderboard (Supabase) ────────────────────────────
+// Create a free project at supabase.com, then a table:
+//   CREATE TABLE scores (id uuid default gen_random_uuid() primary key,
+//     name text, score integer, created_at timestamptz default now());
+// Enable Row Level Security, add policy: allow anon SELECT and INSERT.
+const SUPABASE_URL = 'https://deykgxvihymhpqxptjsm.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_uVUnmPsks3_x2FgKAP85jQ_8Lc04f7o';
+
+let globalScores = [];
+let globalScoresState = 'idle'; // idle | loading | ready | error | offline
+
+async function fetchGlobalScores() {
+  if (!SUPABASE_URL) { globalScoresState = 'offline'; return; }
+  globalScoresState = 'loading';
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/scores?select=name,score&order=score.desc&limit=10`,
+      { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+    );
+    if (!res.ok) throw new Error(res.status);
+    globalScores = await res.json();
+    globalScoresState = 'ready';
+  } catch(e) { globalScoresState = 'error'; }
+}
+
+async function submitGlobalScore(name, score) {
+  if (!SUPABASE_URL) return;
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/scores`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal'
+      },
+      body: JSON.stringify({ name, score })
+    });
+    fetchGlobalScores();
+  } catch(e) {}
+}
+
+// ── Scoreboard (persisted in localStorage) ──────────────────
+const SCORE_KEY = 'ast_scores_v1';
+let scores = (() => { try { return JSON.parse(localStorage.getItem(SCORE_KEY)); } catch(e){} return null; })()
+             || Array.from({length:10}, () => ({name:'AAA', score:0}));
+function saveScores() { try { localStorage.setItem(SCORE_KEY, JSON.stringify(scores)); } catch(e){} }
+function qualifiesForBoard(s) { return s > 0 && s > scores[scores.length-1].score; }
+function scoreRank(s) { for (let i=0;i<scores.length;i++) if (s > scores[i].score) return i; return scores.length-1; }
+function insertScore(name, s) {
+  scores.push({name, score:s}); scores.sort((a,b)=>b.score-a.score);
+  if (scores.length>10) scores.length=10; saveScores();
+}
+function previewBoard(name, s) {
+  const t=[...scores,{name,score:s}]; t.sort((a,b)=>b.score-a.score); return t.slice(0,10);
+}
+
+// ============================================================
+//  VECTOR DRAWING — clean single-pass lines
+// ============================================================
+function vLine(x1, y1, x2, y2, _bright, color) {
+  ctx.beginPath();
+  ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+  ctx.strokeStyle = color || PC;
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+}
+
+function vPoly(pts, closed = true, _bright, color) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  if (closed) ctx.closePath();
+  ctx.strokeStyle = color || PC;
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+}
+
+function vDot(x, y, r, _bright, color) {
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2);
+  ctx.strokeStyle = color || PC;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}
+function vAsterisk(x, y, r, color) {
+  ctx.strokeStyle = color || PC;
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  for (let i = 0; i < 3; i++) {
+    const a = i * Math.PI / 3;
+    ctx.moveTo(x + Math.cos(a)*r, y + Math.sin(a)*r);
+    ctx.lineTo(x - Math.cos(a)*r, y - Math.sin(a)*r);
+  }
+  ctx.stroke();
+}
+
+// ─── ARCADE VECTOR FONT ──────────────────────────────────────────────────
+const _AF_RAW = {
+  A:'00 06 48 86 80:03 83',    B:'00 08 58 76 54 04:64 82 60 00',
+  C:'88 08 00 80',             D:'00 08 58 85 83 50 00',
+  E:'88 08 00 80:04 64',       F:'88 08 00:04 64',
+  G:'88 08 00 80 83 43',       H:'00 08:80 88:04 84',
+  I:'00 80:08 88:40 48',       J:'88 80 40 03',
+  K:'00 08:88 04 80',          L:'08 00 80',
+  M:'00 08 45 88 80',          N:'00 08 80 88',
+  O:'00 80 88 08 00',          P:'00 08 88 84 04',
+  Q:'00 08 88 83 40 00:43 80', R:'00 08 88 84 04 80',
+  S:'00 80 84 04 08 88',       T:'08 88:40 48',
+  U:'08 00 80 88',             V:'08 40 88',
+  W:'08 00 43 80 88',          X:'00 88:08 80',
+  Y:'08 45 88:45 40',          Z:'08 88 00 80',
+  '0':'00 80 88 08 00',        '1':'00 80:40 48 26',
+  '2':'08 88 84 04 00 80',     '3':'08 88 80 00:04 84',
+  '4':'08 04 84:88 80',        '5':'00 80 84 04 08 88',
+  '6':'08 00 80 84 04',        '7':'08 88 80',
+  '8':'00 08 88 80 00:04 84',  '9':'80 88 08 04 84',
+  '.':'00 01 11 10 00',        ',':'01 02 12 11 01:11 00',
+  '-':'14 74',                 ' ':'',
+  '=':'13 73:15 75',           '!':'00 01 11 10 00:03 08 18 13 03',
+  '?':'06 08 88 84 44 40',     ':':'02 03 13 12 02:05 06 16 15 05',
+  '#':'03 83:05 85:30 38:50 58', "'":'07 08 18 17 07:17 05',
+  '[':'28 08 00 20',           ']':'08 28 20 00',
+  '(':'28 04 20',              ')':'08 24 00',
+  '$':'01 81 84 04 07 87:40 48', '+':'41 47:14 74',
+  '/':'00 88',                 '*':'41 47:14 74:22 66:26 62',
+  '%':'00 88:18 28 27 17 18:70 71 61 60 70',
+  '<':'87 04 81',              '>':'07 84 01',
+  '\u2014':'04 84'
+};
+// strip spaces, read digit pairs, flip y for canvas coords
+const ARCADE_FONT = {};
+for (const [ch, raw] of Object.entries(_AF_RAW)) {
+  ARCADE_FONT[ch] = raw.split(':').map(seg => {
+    const d = seg.replace(/\s+/g, '');
+    const pts = [];
+    for (let i = 0; i + 1 < d.length; i += 2) pts.push([+d[i], 8 - +d[i+1]]);
+    return pts;
+  }).filter(s => s.length >= 2);
+}
+function drawArcadeText(text, x, y, size, align, color) {
+  size *= 0.5;
+  const scale  = size / 8;
+  const cw     = 10 * scale + 2;
+  const str    = String(text).toUpperCase();
+  const totalW = str.length * cw;
+  const ox = align === 'right'  ? x - totalW
+           : align === 'center' ? x - totalW / 2 : x;
+  const oy = y - 4 * scale;
+  ctx.strokeStyle = color || PC;
+  ctx.lineWidth   = 1;
+  ctx.lineCap     = 'round';
+  ctx.lineJoin    = 'round';
+  for (let i = 0; i < str.length; i++) {
+    const strokes = ARCADE_FONT[str[i]];
+    if (!strokes) continue;
+    const cx = ox + i * cw;
+    for (const stroke of strokes) {
+      ctx.beginPath();
+      ctx.moveTo(cx + stroke[0][0] * scale, oy + stroke[0][1] * scale);
+      for (let j = 1; j < stroke.length; j++)
+        ctx.lineTo(cx + stroke[j][0] * scale, oy + stroke[j][1] * scale);
+      ctx.stroke();
+    }
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────
+function vText(text, x, y, size = 24, align = 'center', bright, color) {
+  if (bright !== undefined && bright !== 1) {
+    ctx.save();
+    ctx.globalAlpha *= bright;
+    drawArcadeText(text, x, y, size, align, color);
+    ctx.restore();
+  } else {
+    drawArcadeText(text, x, y, size, align, color);
+  }
+}
+
+// Smoothly sample the main palette at t ∈ [0,1) with RGB lerp between adjacent colours
+function paletteSample(t) {
+  const n = PALETTE.length;
+  const pos = (((t % 1) + 1) % 1) * n;
+  const i = Math.floor(pos), f = pos - i;
+  const [r1,g1,b1] = hexToRgb(PALETTE[i % n]);
+  const [r2,g2,b2] = hexToRgb(PALETTE[(i + 1) % n]);
+  return `rgb(${Math.round(r1+(r2-r1)*f)},${Math.round(g1+(g2-g1)*f)},${Math.round(b1+(b2-b1)*f)})`;
+}
+
+// Return all vector strokes for text as {pts,sx} without drawing, sx = mean x of stroke
+function arcadeTextGetStrokes(text, x, y, size, align) {
+  const sc = (size * 0.5) / 8, cw = 10 * sc + 2;
+  const str = String(text).toUpperCase(), totalW = str.length * cw;
+  const ox = align === 'right' ? x - totalW : align === 'center' ? x - totalW / 2 : x;
+  const oy = y - 4 * sc;
+  const out = [];
+  for (let i = 0; i < str.length; i++) {
+    const cs = ARCADE_FONT[str[i]]; if (!cs) continue;
+    const cx = ox + i * cw;
+    for (const s of cs) {
+      const pts = s.map(([px,py]) => [cx + px*sc, oy + py*sc]);
+      out.push({ pts, sx: pts.reduce((sum,[px])=>sum+px,0)/pts.length });
+    }
+  }
+  return out;
+}
+
+// Draw text with a palette colour wave that travels along the stroke order.
+// phase ∈ [0,1) advances over time to make the wave creep left→right.
+function drawArcadeTextWave(text, x, y, size, align, phase) {
+  const sc = (size * 0.5) / 8, cw = 10 * sc + 2;
+  const str = String(text).toUpperCase(), totalW = str.length * cw;
+  const ox = align === 'right' ? x - totalW : align === 'center' ? x - totalW / 2 : x;
+  const oy = y - 4 * sc;
+  let total = 0;
+  for (const ch of str) { const s = ARCADE_FONT[ch]; if (s) total += s.length; }
+  ctx.lineWidth = 1; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  let si = 0;
+  for (let i = 0; i < str.length; i++) {
+    const cs = ARCADE_FONT[str[i]]; if (!cs) continue;
+    const cx = ox + i * cw;
+    for (const s of cs) {
+      ctx.strokeStyle = paletteSample(si / total - phase);
+      ctx.beginPath();
+      ctx.moveTo(cx + s[0][0]*sc, oy + s[0][1]*sc);
+      for (let j = 1; j < s.length; j++) ctx.lineTo(cx + s[j][0]*sc, oy + s[j][1]*sc);
+      ctx.stroke();
+      si++;
+    }
+  }
+}
+
+function rot(px, py, a) {
+  const c = Math.cos(a), s = Math.sin(a);
+  return [px*c - py*s, px*s + py*c];
+}
+
+function xfPoly(pts, ox, oy, angle, bright = 1, color = null) {
+  const xf = pts.map(([px,py]) => { const [rx,ry]=rot(px,py,angle); return [ox+rx,oy+ry]; });
+  vPoly(xf, true, bright, color);
+  return xf;
+}
+
+// ============================================================
+//  AUDIO — Web Audio synth
+// ============================================================
+let ac = null;
+function audio() {
+  if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+  return ac;
+}
+
+// Master bus: dry + true convolution reverb
+let _master = null;
+function master() {
+  const a = audio();
+  if (_master) return _master;
+
+  // Convolution reverb impulse: exponential decay for a smooth, natural room tail
+  const secs = 3.0, rate = a.sampleRate;
+  const ibuf = a.createBuffer(2, Math.ceil(rate * secs), rate);
+  for (let c = 0; c < 2; c++) {
+    const d = ibuf.getChannelData(c);
+    for (let i = 0; i < d.length; i++)
+      d[i] = (Math.random()*2-1) * Math.exp(-i / (rate * 1.8));
+  }
+  const conv = a.createConvolver(); conv.buffer = ibuf;
+  const revWet = a.createGain(); revWet.gain.value = 1.10;
+
+  const dry = a.createGain(); dry.gain.value = 0.75;
+  _master = a.createGain(); _master.gain.value = 1;
+  _master.connect(dry);    dry.connect(a.destination);
+  _master.connect(conv);   conv.connect(revWet); revWet.connect(a.destination);
+  return _master;
+}
+
+function tone(freq, type, dur, gain = 0.25, delay = 0) {
+  try {
+    const a = audio();
+    const o = a.createOscillator(), g = a.createGain();
+    o.connect(g); g.connect(master());
+    o.type = type; o.frequency.value = freq;
+    const t = a.currentTime + delay;
+    g.gain.setValueAtTime(gain, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.start(t); o.stop(t + dur + 0.05);
+  } catch(e) {}
+}
+
+// Filtered noise burst: freq = bandpass centre Hz, dur = seconds, gain, Q sharpness
+function noiseBurst(freq, dur, gain = 0.15, Q = 1.5, envDecay = true) {
+  try {
+    const a = audio();
+    const samples = Math.ceil(a.sampleRate * dur);
+    const buf = a.createBuffer(1, samples, a.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < samples; i++)
+      d[i] = (Math.random()*2-1) * (envDecay ? (1 - i/samples) : 1);
+    const src = a.createBufferSource();
+    src.buffer = buf;
+    const bp = a.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = freq; bp.Q.value = Q;
+    const g = a.createGain(); g.gain.value = gain;
+    src.connect(bp); bp.connect(g); g.connect(master());
+    src.start();
+  } catch(e) {}
+}
+
+function noise(dur, gain = 0.08) {
+  noiseBurst(400, dur, gain, 0.5);
+}
+
+const SFX = {
+  fire:   () => { noiseBurst(1240, 0.340, 0.225, 7.2); tone(40, 'sine', 0.200, 0.18); },
+  bigBoom:() => { noiseBurst(55,  0.8, 2.0, 1.2); noiseBurst(38, 0.6, 1.40, 0.8); },
+  medBoom:() => noiseBurst(100, 0.5, 1.40, 1.2),
+  smlBoom:() => noiseBurst(180, 0.3, 1.00, 1.5),
+  die:    () => { [0,80,160,240,350].forEach(ms => setTimeout(() => noiseBurst(55 + Math.random()*40, 0.4, 1.20, 1), ms)); },
+  life:   () => { [880,1100,1320].forEach((f,i)=>tone(f,'sine',0.3,0.4,i*0.12)); },
+  ufo:    null,
+  ufoNode:null,
+};
+
+function startUFOSound(big) {
+  stopUFOSound();
+  try {
+    const a = audio();
+    const o = a.createOscillator(), g = a.createGain();
+    const lfo = a.createOscillator(), lg = a.createGain();
+    lfo.frequency.value = big ? 4 : 8;
+    lfo.connect(lg); lg.gain.value = big ? 200 : 100;
+    lg.connect(o.frequency);
+    o.frequency.value = big ? 500 : 900;
+    o.type = 'square';
+    g.gain.value = 0.02;
+    o.connect(g); g.connect(master());
+    lfo.start(); o.start();
+    SFX.ufoNode = [o, g, lfo, lg];
+  } catch(e) {}
+}
+function stopUFOSound() {
+  if (SFX.ufoNode) { try { SFX.ufoNode[0].stop(); SFX.ufoNode[2].stop(); } catch(e){} SFX.ufoNode = null; }
+  stopAlienSound();
+}
+
+// ── Alien bassline: 8 random notes from Clair de Lune's Db-major harmonic pool ──
+// Db3 Eb3 F3 Gb3 Ab3 Bb3 B3 Db4 Eb4 F4 Gb4 Ab4  (+1 octave)
+const _ALIEN_SCALE = [138.59, 155.56, 174.61, 185.00, 207.65, 233.08, 246.94,
+                      277.18, 311.13, 349.23, 369.99, 415.30];
+let _alienSoundTmr = null;
+
+function stopAlienSound() {
+  clearTimeout(_alienSoundTmr);
+  _alienSoundTmr = null;
+}
+
+function startAlienSound() {
+  stopAlienSound();
+  // Shuffle pool and pick 8 unique bass notes
+  const pool = [..._ALIEN_SCALE].sort(() => Math.random() - 0.5);
+  const notes = pool.slice(0, 8);
+  const beatMs = (680 + Math.random() * 80) / 3.4; // ~275–290 BPM, slightly varied
+  let idx = 0;
+  function tick() {
+    if (!ufo || ufo.type !== 'alien') return;
+    try {
+      const a = audio();
+      const f = notes[Math.floor(idx / 2) % 8]; // each note plays twice: A A B B C C …
+      const osc = a.createOscillator(), filt = a.createBiquadFilter(), g = a.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = f;
+      filt.type = 'lowpass'; filt.frequency.value = 620; filt.Q.value = 1.4;
+      const dur = beatMs / 1000 * 0.70;
+      g.gain.setValueAtTime(0, a.currentTime);
+      g.gain.linearRampToValueAtTime(0.15, a.currentTime + 0.025);
+      g.gain.setValueAtTime(0.11, a.currentTime + dur * 0.45);
+      g.gain.linearRampToValueAtTime(0, a.currentTime + dur);
+      osc.connect(filt); filt.connect(g); g.connect(master());
+      osc.start(a.currentTime); osc.stop(a.currentTime + dur + 0.05);
+      idx++;
+    } catch(e) {}
+    _alienSoundTmr = setTimeout(tick, beatMs);
+  }
+  tick();
+}
+
+// Stop oscillators when tab is hidden or closed
+document.addEventListener('visibilitychange', () => { if (document.hidden) stopUFOSound(); });
+window.addEventListener('pagehide', () => stopUFOSound());
+
+let beatTmr = null, beatPhase = 0, beatSpeed = 800;
+function startBeat() {}
+function stopBeat() { clearTimeout(beatTmr); }
+
+function playFanfare() {
+  // Clair de Lune bars 1–2 — first two chords only (~2.7 s).
+  // Played at raw Hz (one octave above the title music's hz*0.5 transposition).
+  const a = audio(), t0 = a.currentTime, bps = CDLUNE_BPS * 1.3;
+  [
+    [0.0, 2.0,  698.4565, 0],   // F5  ┐ first chord
+    [0.0, 2.0,  830.6094, 0],   // Ab5 ┘
+    [2.0, 2.0,  554.3653, 0],   // Db5 ┐ second chord (fades ~2.1 s)
+    [2.0, 2.0,  698.4565, 0],   // F5  ┘
+  ].forEach(([bs, bd, hz, v]) => _fanfareNote(hz, t0 + bs/bps, bd/bps * 0.92, v));
+}
+
+// ============================================================
+
+
+
+
+// Debussy: Clair de Lune (excerpt, bars 1–48)
+// PPQ=480, Dominant Tempo=845070 µs/beat = 71.0 BPM, Time sig: 9/8
+// Loop length: 216.0 beats at avg 85.1833 BPM
+// Events: 1111 notes  |  Duration: 152.14s
+const CDLUNE_EVT = [
+  [0.0, 2.0, 698.4565, 0],
+  [0.0, 2.0, 830.6094, 0],
+  [2.0, 2.0, 554.3653, 0],
+  [2.0, 2.0, 698.4565, 0],
+  [3.5, 4.5, 369.9944, 3],
+  [3.5, 4.5, 440.0, 3],
+  [4.0, 0.5, 622.254, 0],
+  [4.0, 0.5, 523.2511, 0],
+  [4.5, 0.5, 698.4565, 0],
+  [4.5, 0.5, 554.3653, 0],
+  [5.0, 3.5, 523.2511, 0],
+  [5.0, 3.5, 622.254, 0],
+  [8.0, 4.5, 415.3047, 3],
+  [8.0, 4.5, 349.2282, 3],
+  [8.5, 0.5, 466.1638, 0],
+  [8.5, 0.5, 554.3653, 0],
+  [9.0, 0.5, 523.2511, 0],
+  [9.0, 0.5, 622.254, 0],
+  [9.5, 0.75, 554.3653, 0],
+  [9.5, 3.5, 466.1638, 0],
+  [10.25, 1.5, 698.4565, 0],
+  [11.75, 1.25, 554.3653, 0],
+  [12.5, 4.4917, 369.9944, 3],
+  [12.5, 4.5, 311.127, 3],
+  [13.0, 0.5, 415.3047, 0],
+  [13.0, 0.5, 523.2511, 0],
+  [13.5, 0.5, 554.3653, 0],
+  [13.5, 0.5, 466.1638, 0],
+  [14.0, 3.5, 415.3047, 0],
+  [14.0, 3.5, 523.2511, 0],
+  [17.0, 3.0, 369.9944, 0],
+  [17.0, 3.0, 277.1826, 3],
+  [17.0, 3.0, 311.127, 3],
+  [17.5, 0.5, 466.1638, 0],
+  [18.0, 0.5, 523.2511, 0],
+  [18.5, 0.5, 466.1638, 0],
+  [19.0, 0.5, 622.254, 0],
+  [19.5, 0.5, 466.1638, 0],
+  [20.0, 0.5, 415.3047, 0],
+  [20.0, 1.5, 369.9944, 0],
+  [20.0, 1.4958, 311.127, 3],
+  [20.0, 1.5, 261.6256, 3],
+  [20.5, 0.5, 466.1638, 0],
+  [21.0, 1.0, 415.3047, 0],
+  [21.5, 3.0, 311.127, 0],
+  [21.5, 3.0, 277.1826, 3],
+  [21.5, 3.0, 233.0819, 3],
+  [22.0, 0.5, 369.9944, 0],
+  [22.5, 0.5, 415.3047, 0],
+  [23.0, 1.5, 369.9944, 0],
+  [24.5, 1.5, 311.127, 0],
+  [24.5, 2.0, 349.2282, 0],
+  [24.5, 1.5, 261.6256, 3],
+  [24.5, 1.5, 220.0, 3],
+  [26.0, 3.0, 277.1826, 0],
+  [26.0, 3.0, 207.6523, 3],
+  [26.0, 4.4958, 233.0819, 3],
+  [26.5, 0.5, 349.2282, 0],
+  [27.0, 0.5, 369.9944, 0],
+  [27.5, 0.5, 349.2282, 0],
+  [28.0, 0.5, 466.1638, 0],
+  [28.5, 0.5, 349.2282, 0],
+  [29.0, 0.5, 311.127, 0],
+  [29.0, 1.5, 184.9972, 3],
+  [29.5, 0.5, 349.2282, 0],
+  [30.0, 1.0, 311.127, 0],
+  [30.5, 3.0, 233.0819, 1],
+  [30.5, 1.4958, 207.6523, 3],
+  [30.5, 3.0, 174.6141, 3],
+  [31.0, 0.5, 277.1826, 0],
+  [31.5, 0.5, 311.127, 0],
+  [32.0, 1.5, 277.1826, 0],
+  [33.5, 1.5, 261.6256, 1],
+  [33.5, 1.5, 207.6523, 1],
+  [33.5, 0.75, 155.5635, 3],
+  [33.5, 1.5, 184.9972, 3],
+  [34.25, 1.25, 103.8262, 2],
+  [35.0, 0.5, 69.2957, 2],
+  [35.5, 0.5, 174.6141, 1],
+  [35.5, 0.5, 207.6523, 1],
+  [36.0, 3.5, 415.3047, 3],
+  [36.0, 3.5, 349.2282, 3],
+  [36.5, 1.5, 698.4565, 0],
+  [36.5, 1.5, 830.6094, 0],
+  [38.0, 2.0, 698.4565, 0],
+  [38.0, 2.0, 554.3653, 0],
+  [39.5, 3.0, 92.4986, 2],
+  [40.0, 0.5, 622.254, 0],
+  [40.0, 4.0, 466.1638, 0],
+  [40.0, 4.0, 369.9944, 0],
+  [40.0, 2.5, 138.5913, 3],
+  [40.0, 4.0, 184.9972, 3],
+  [40.0, 4.0, 233.0819, 3],
+  [40.0, 4.0, 277.1826, 3],
+  [40.5, 0.5, 698.4565, 0],
+  [41.0, 3.5, 622.254, 0],
+  [44.0, 3.0, 87.3071, 2],
+  [44.0, 3.0, 138.5913, 3],
+  [44.5, 0.5, 277.1826, 0],
+  [44.5, 0.5, 554.3653, 0],
+  [44.5, 1.0, 415.3047, 0],
+  [44.5, 1.0, 207.6523, 3],
+  [44.5, 1.0, 174.6141, 3],
+  [45.0, 0.5, 311.127, 0],
+  [45.0, 0.5, 622.254, 0],
+  [45.5, 1.5, 830.6094, 0],
+  [45.5, 1.5, 554.3653, 0],
+  [45.5, 1.5, 415.3047, 0],
+  [45.5, 1.4958, 349.2282, 3],
+  [45.5, 1.5, 277.1826, 3],
+  [47.0, 1.5, 349.2282, 0],
+  [47.0, 1.5, 554.3653, 0],
+  [47.0, 2.0, 698.4565, 0],
+  [47.0, 1.5, 277.1826, 3],
+  [47.0, 1.5, 207.6523, 3],
+  [48.5, 3.0, 92.4986, 2],
+  [49.0, 0.5, 622.254, 0],
+  [49.0, 4.0, 466.1638, 0],
+  [49.0, 4.0, 369.9944, 0],
+  [49.0, 2.5, 138.5913, 3],
+  [49.0, 4.0, 184.9972, 3],
+  [49.0, 4.0, 233.0819, 3],
+  [49.0, 4.0, 277.1826, 3],
+  [49.5, 0.5, 698.4565, 0],
+  [50.0, 1.5, 622.254, 0],
+  [51.5, 2.0, 554.3653, 0],
+  [53.0, 4.5, 103.8262, 2],
+  [53.5, 0.5, 277.1826, 0],
+  [53.5, 0.5, 554.3653, 0],
+  [53.5, 1.0, 415.3047, 0],
+  [53.5, 1.0, 246.9417, 3],
+  [53.5, 1.0, 174.6141, 3],
+  [54.0, 0.5, 622.254, 0],
+  [54.0, 0.5, 311.127, 0],
+  [54.5, 0.75, 932.3275, 0],
+  [54.5, 0.75, 466.1638, 0],
+  [54.5, 2.0, 246.9417, 3],
+  [54.5, 2.0, 277.1826, 3],
+  [54.5, 2.0, 349.2282, 3],
+  [55.25, 1.5, 415.3047, 0],
+  [55.25, 1.5, 830.6094, 0],
+  [56.75, 0.75, 698.4565, 0],
+  [56.75, 1.25, 349.2282, 0],
+  [57.5, 3.0, 116.5409, 2],
+  [58.0, 0.5, 622.254, 0],
+  [58.0, 4.0, 349.2282, 0],
+  [58.0, 1.75, 311.127, 3],
+  [58.0, 4.0, 233.0819, 3],
+  [58.0, 4.0, 174.6141, 3],
+  [58.5, 0.5, 698.4565, 0],
+  [59.0, 0.75, 622.254, 0],
+  [59.75, 1.5, 554.3653, 0],
+  [59.75, 2.25, 277.1826, 3],
+  [61.25, 0.75, 466.1638, 0],
+  [62.0, 3.0, 38.8909, 2],
+  [62.0, 3.0, 77.7817, 2],
+  [62.75, 2.25, 698.4565, 0],
+  [62.75, 2.25, 1396.9129, 0],
+  [62.75, 2.25, 349.2282, 3],
+  [64.0, 0.5, 622.254, 0],
+  [64.0, 0.5, 1244.5079, 0],
+  [64.0, 0.5, 932.3275, 0],
+  [64.0, 0.5, 466.1638, 3],
+  [64.0, 0.5, 369.9944, 3],
+  [64.0, 0.5, 311.127, 3],
+  [64.5, 0.4583, 622.254, 0],
+  [64.5, 0.4583, 932.3275, 0],
+  [64.5, 0.4583, 1244.5079, 0],
+  [64.5, 0.4583, 466.1638, 3],
+  [64.5, 0.4583, 369.9944, 3],
+  [64.5, 0.4583, 311.127, 3],
+  [65.0, 0.5, 932.3275, 0],
+  [65.0, 0.5, 1244.5079, 0],
+  [65.0, 0.5, 622.254, 0],
+  [65.0, 0.5, 466.1638, 3],
+  [65.0, 0.5, 369.9944, 3],
+  [65.0, 0.5, 311.127, 3],
+  [65.5, 0.5, 1108.7305, 0],
+  [65.5, 0.5, 554.3653, 0],
+  [65.5, 0.5, 932.3275, 0],
+  [65.5, 0.5, 466.1638, 3],
+  [65.5, 0.5, 369.9944, 3],
+  [65.5, 0.5, 277.1826, 3],
+  [66.0, 0.4583, 932.3275, 0],
+  [66.0, 0.4583, 1108.7305, 0],
+  [66.0, 0.4583, 554.3653, 0],
+  [66.0, 0.4583, 466.1638, 3],
+  [66.0, 0.4583, 369.9944, 3],
+  [66.0, 0.4583, 277.1826, 3],
+  [66.5, 0.5, 932.3275, 0],
+  [66.5, 0.5, 554.3653, 0],
+  [66.5, 0.5, 1108.7305, 0],
+  [66.5, 0.5, 466.1638, 3],
+  [66.5, 0.5, 369.9944, 3],
+  [66.5, 0.5, 277.1826, 3],
+  [67.0, 0.5, 1046.5023, 0],
+  [67.0, 0.5, 932.3275, 0],
+  [67.0, 0.5, 739.9888, 0],
+  [67.0, 0.5, 523.2511, 0],
+  [67.0, 0.5, 466.1638, 3],
+  [67.0, 0.5, 369.9944, 3],
+  [67.0, 0.5, 261.6256, 3],
+  [67.5, 0.4583, 739.9888, 0],
+  [67.5, 0.4583, 523.2511, 0],
+  [67.5, 0.4583, 932.3275, 0],
+  [67.5, 0.4583, 1046.5023, 0],
+  [67.5, 0.4583, 466.1638, 3],
+  [67.5, 0.4583, 369.9944, 3],
+  [67.5, 0.4583, 261.6256, 3],
+  [68.0, 0.75, 739.9888, 0],
+  [68.0, 0.75, 1046.5023, 0],
+  [68.0, 0.75, 523.2511, 0],
+  [68.0, 0.75, 932.3275, 0],
+  [68.0, 0.75, 466.1638, 3],
+  [68.0, 0.75, 369.9944, 3],
+  [68.0, 0.75, 261.6256, 3],
+  [68.75, 0.75, 1108.7305, 0],
+  [68.75, 0.75, 554.3653, 0],
+  [68.75, 0.75, 932.3275, 0],
+  [68.75, 0.75, 466.1638, 3],
+  [68.75, 0.75, 369.9944, 3],
+  [68.75, 0.75, 277.1826, 3],
+  [69.5, 1.5, 739.9888, 0],
+  [69.5, 1.5, 932.3275, 0],
+  [69.5, 1.5, 466.1638, 0],
+  [69.5, 1.5, 369.9944, 3],
+  [69.5, 1.5, 277.1826, 3],
+  [69.5, 1.5, 233.0819, 3],
+  [71.0, 3.0, 38.8909, 2],
+  [71.0, 3.0, 77.7817, 2],
+  [71.0, 3.0, 116.5409, 2],
+  [73.0, 0.5, 932.3275, 0],
+  [73.0, 0.5, 739.9888, 0],
+  [73.0, 0.5, 1479.9777, 0],
+  [73.0, 0.5, 466.1638, 3],
+  [73.0, 0.5, 622.254, 3],
+  [73.0, 0.5, 369.9944, 3],
+  [73.5, 0.4583, 932.3275, 0],
+  [73.5, 0.4583, 1396.9129, 0],
+  [73.5, 0.4583, 698.4565, 0],
+  [73.5, 0.4583, 369.9944, 3],
+  [73.5, 0.4583, 466.1638, 3],
+  [73.5, 0.4583, 349.2282, 3],
+  [74.0, 0.4583, 932.3275, 0],
+  [74.0, 0.4583, 622.254, 0],
+  [74.0, 0.4583, 1244.5079, 0],
+  [74.0, 0.4583, 466.1638, 3],
+  [74.0, 0.4583, 369.9944, 3],
+  [74.0, 0.4583, 311.127, 3],
+  [74.5, 0.5, 932.3275, 0],
+  [74.5, 0.5, 1396.9129, 0],
+  [74.5, 0.5, 698.4565, 0],
+  [74.5, 0.5, 466.1638, 3],
+  [74.5, 0.5, 369.9944, 3],
+  [74.5, 0.5, 349.2282, 3],
+  [75.0, 0.5, 622.254, 0],
+  [75.0, 0.5, 1244.5079, 0],
+  [75.0, 0.5, 932.3275, 0],
+  [75.0, 0.5, 466.1638, 3],
+  [75.0, 0.5, 369.9944, 3],
+  [75.0, 0.5, 311.127, 3],
+  [75.5, 0.4583, 554.3653, 0],
+  [75.5, 0.4583, 932.3275, 0],
+  [75.5, 0.4583, 1108.7305, 0],
+  [75.5, 0.4583, 466.1638, 3],
+  [75.5, 0.4583, 369.9944, 3],
+  [75.5, 0.4583, 277.1826, 3],
+  [76.0, 0.5, 1244.5079, 0],
+  [76.0, 0.5, 622.254, 0],
+  [76.0, 0.5, 932.3275, 0],
+  [76.0, 0.5, 466.1638, 3],
+  [76.0, 0.5, 369.9944, 3],
+  [76.0, 0.5, 311.127, 3],
+  [76.5, 0.4583, 1108.7305, 0],
+  [76.5, 0.4583, 932.3275, 0],
+  [76.5, 0.4583, 554.3653, 0],
+  [76.5, 0.4583, 466.1638, 3],
+  [76.5, 0.4583, 369.9944, 3],
+  [76.5, 0.4583, 277.1826, 3],
+  [77.0, 0.6875, 1046.5023, 0],
+  [77.0, 0.6875, 523.2511, 0],
+  [77.0, 0.6875, 932.3275, 0],
+  [77.0, 0.75, 466.1638, 3],
+  [77.0, 0.75, 369.9944, 3],
+  [77.0, 0.75, 261.6256, 3],
+  [77.6875, 0.0625, 1244.5079, 0],
+  [77.75, 0.75, 932.3275, 0],
+  [77.75, 0.75, 554.3653, 0],
+  [77.75, 0.75, 1108.7305, 0],
+  [77.75, 0.75, 466.1638, 3],
+  [77.75, 0.75, 369.9944, 3],
+  [77.75, 0.75, 277.1826, 3],
+  [78.5, 2.25, 932.3275, 0],
+  [78.5, 2.25, 739.9888, 0],
+  [78.5, 2.25, 466.1638, 0],
+  [78.5, 1.5, 369.9944, 3],
+  [78.5, 1.5, 311.127, 3],
+  [78.5, 1.5, 233.0819, 3],
+  [80.0, 3.0, 51.9131, 2],
+  [80.0, 3.0, 103.8262, 2],
+  [80.75, 0.75, 369.9944, 0],
+  [80.75, 0.75, 739.9888, 0],
+  [80.75, 0.75, 184.9972, 3],
+  [81.5, 0.75, 415.3047, 0],
+  [81.5, 0.75, 830.6094, 0],
+  [81.5, 0.75, 622.254, 0],
+  [81.5, 0.75, 207.6523, 3],
+  [81.5, 1.5, 311.127, 3],
+  [82.25, 0.75, 1046.5023, 0],
+  [82.25, 0.75, 523.2511, 0],
+  [82.25, 0.75, 261.6256, 3],
+  [83.0, 0.75, 739.9888, 0],
+  [83.0, 0.75, 932.3275, 0],
+  [83.0, 0.75, 466.1638, 0],
+  [83.0, 0.75, 233.0819, 3],
+  [83.0, 1.5, 311.127, 3],
+  [83.0, 1.5, 369.9944, 3],
+  [83.75, 0.75, 739.9888, 0],
+  [83.75, 0.75, 369.9944, 0],
+  [83.75, 0.75, 184.9972, 3],
+  [84.5, 3.0, 55.0, 2],
+  [84.5, 3.0, 110.0, 2],
+  [85.0, 0.5, 523.2511, 0],
+  [85.0, 0.5, 622.254, 0],
+  [85.0, 0.5, 369.9944, 0],
+  [85.0, 0.5, 739.9888, 0],
+  [85.0, 0.5, 184.9972, 3],
+  [85.0, 0.5, 311.127, 3],
+  [85.0, 0.5, 261.6256, 3],
+  [85.5, 0.4792, 739.9888, 0],
+  [85.5, 0.4792, 622.254, 0],
+  [85.5, 0.4792, 369.9944, 0],
+  [85.5, 0.5, 523.2511, 0],
+  [85.5, 0.4792, 184.9972, 3],
+  [85.5, 0.4792, 311.127, 3],
+  [85.5, 0.4792, 261.6256, 3],
+  [86.0, 0.5, 523.2511, 0],
+  [86.0, 0.5, 622.254, 0],
+  [86.0, 0.5, 739.9888, 0],
+  [86.0, 0.5, 369.9944, 0],
+  [86.0, 0.5, 184.9972, 3],
+  [86.0, 0.5, 311.127, 3],
+  [86.0, 0.5, 261.6256, 3],
+  [86.5, 0.4583, 369.9944, 0],
+  [86.5, 0.4583, 523.2511, 0],
+  [86.5, 0.4583, 622.254, 0],
+  [86.5, 0.4583, 739.9888, 0],
+  [86.5, 0.4583, 184.9972, 3],
+  [86.5, 0.4583, 311.127, 3],
+  [86.5, 0.4583, 261.6256, 3],
+  [87.0, 0.5, 622.254, 0],
+  [87.0, 0.5, 830.6094, 0],
+  [87.0, 0.5, 523.2511, 0],
+  [87.0, 0.5, 415.3047, 0],
+  [87.0, 0.5, 311.127, 3],
+  [87.0, 0.5, 207.6523, 3],
+  [87.0, 0.5, 261.6256, 3],
+  [87.5, 1.5, 622.254, 0],
+  [87.5, 1.5, 369.9944, 0],
+  [87.5, 1.5, 739.9888, 0],
+  [87.5, 1.5, 523.2511, 0],
+  [87.5, 1.5, 311.127, 3],
+  [87.5, 1.5, 261.6256, 3],
+  [87.5, 1.5, 184.9972, 3],
+  [89.0, 3.0, 116.5409, 2],
+  [89.0, 3.0, 58.2705, 2],
+  [89.75, 0.75, 739.9888, 0],
+  [89.75, 0.75, 369.9944, 0],
+  [89.75, 1.5, 554.3653, 0],
+  [89.75, 0.75, 184.9972, 3],
+  [89.75, 1.5, 233.0819, 3],
+  [89.75, 1.5, 277.1826, 3],
+  [90.5, 0.75, 830.6094, 0],
+  [90.5, 0.75, 415.3047, 0],
+  [90.5, 0.75, 207.6523, 3],
+  [91.25, 0.75, 554.3653, 0],
+  [91.25, 0.75, 1108.7305, 0],
+  [91.25, 0.75, 277.1826, 3],
+  [92.0, 0.75, 932.3275, 0],
+  [92.0, 0.75, 466.1638, 0],
+  [92.0, 0.75, 233.0819, 3],
+  [92.0, 1.5, 277.1826, 3],
+  [92.0, 1.5, 369.9944, 3],
+  [92.75, 0.75, 369.9944, 0],
+  [92.75, 0.75, 739.9888, 0],
+  [92.75, 0.75, 184.9972, 3],
+  [93.5, 3.0, 65.4064, 2],
+  [93.5, 3.0, 130.8128, 2],
+  [94.0, 0.5, 739.9888, 0],
+  [94.0, 0.5, 466.1638, 0],
+  [94.0, 0.5, 369.9944, 0],
+  [94.0, 0.5, 622.254, 0],
+  [94.0, 0.5, 184.9972, 3],
+  [94.0, 0.5, 311.127, 3],
+  [94.0, 0.5, 233.0819, 3],
+  [94.5, 0.4792, 739.9888, 0],
+  [94.5, 0.4792, 369.9944, 0],
+  [94.5, 0.4792, 622.254, 0],
+  [94.5, 0.5, 466.1638, 0],
+  [94.5, 0.4792, 184.9972, 3],
+  [94.5, 0.4792, 311.127, 3],
+  [94.5, 0.4792, 233.0819, 3],
+  [95.0, 0.5, 622.254, 0],
+  [95.0, 0.5, 466.1638, 0],
+  [95.0, 0.5, 739.9888, 0],
+  [95.0, 0.5, 369.9944, 0],
+  [95.0, 0.5, 184.9972, 3],
+  [95.0, 0.5, 311.127, 3],
+  [95.0, 0.5, 233.0819, 3],
+  [95.5, 0.4583, 739.9888, 0],
+  [95.5, 0.4583, 369.9944, 0],
+  [95.5, 0.4583, 466.1638, 0],
+  [95.5, 0.4583, 622.254, 0],
+  [95.5, 0.4583, 184.9972, 3],
+  [95.5, 0.4583, 311.127, 3],
+  [95.5, 0.4583, 233.0819, 3],
+  [96.0, 0.5, 698.4565, 0],
+  [96.0, 0.5, 523.2511, 0],
+  [96.0, 0.5, 415.3047, 0],
+  [96.0, 0.5, 830.6094, 0],
+  [96.0, 0.5, 349.2282, 3],
+  [96.0, 0.5, 207.6523, 3],
+  [96.0, 0.5, 261.6256, 3],
+  [96.5, 1.5, 369.9944, 0],
+  [96.5, 1.5, 466.1638, 0],
+  [96.5, 1.5, 622.254, 0],
+  [96.5, 1.5, 739.9888, 0],
+  [96.5, 1.5, 311.127, 3],
+  [96.5, 1.5, 233.0819, 3],
+  [96.5, 1.5, 184.9972, 3],
+  [98.0, 3.0, 69.2957, 2],
+  [98.0, 3.0, 138.5913, 3],
+  [98.75, 0.75, 369.9944, 0],
+  [98.75, 0.75, 739.9888, 0],
+  [98.75, 1.5, 554.3653, 0],
+  [98.75, 1.5, 466.1638, 0],
+  [98.75, 0.75, 184.9972, 3],
+  [98.75, 1.5, 233.0819, 3],
+  [98.75, 1.5, 277.1826, 3],
+  [99.5, 0.75, 830.6094, 0],
+  [99.5, 0.75, 415.3047, 0],
+  [99.5, 0.75, 207.6523, 3],
+  [100.25, 0.75, 622.254, 0],
+  [100.25, 0.75, 1244.5079, 0],
+  [100.25, 0.75, 311.127, 3],
+  [101.0, 0.75, 1108.7305, 0],
+  [101.0, 0.75, 554.3653, 0],
+  [101.0, 1.5, 739.9888, 0],
+  [101.0, 0.75, 277.1826, 3],
+  [101.0, 1.5, 369.9944, 3],
+  [101.0, 1.5, 466.1638, 3],
+  [101.75, 0.75, 932.3275, 0],
+  [101.75, 0.75, 466.1638, 0],
+  [101.75, 0.75, 233.0819, 3],
+  [102.5, 3.0, 77.7817, 2],
+  [102.5, 3.0, 155.5635, 3],
+  [103.0, 0.5, 739.9888, 0],
+  [103.0, 0.5, 466.1638, 0],
+  [103.0, 0.5, 932.3275, 0],
+  [103.0, 0.5, 184.9972, 3],
+  [103.0, 0.5, 311.127, 3],
+  [103.0, 0.5, 233.0819, 3],
+  [103.5, 0.4792, 739.9888, 0],
+  [103.5, 0.4792, 932.3275, 0],
+  [103.5, 0.5, 466.1638, 0],
+  [103.5, 0.4792, 184.9972, 3],
+  [103.5, 0.4792, 311.127, 3],
+  [103.5, 0.4792, 233.0819, 3],
+  [104.0, 0.5, 739.9888, 0],
+  [104.0, 0.5, 466.1638, 0],
+  [104.0, 0.5, 932.3275, 0],
+  [104.0, 0.5, 184.9972, 3],
+  [104.0, 0.5, 311.127, 3],
+  [104.0, 0.5, 233.0819, 3],
+  [104.5, 0.4583, 739.9888, 0],
+  [104.5, 0.4583, 932.3275, 0],
+  [104.5, 0.4583, 466.1638, 0],
+  [104.5, 0.4583, 184.9972, 3],
+  [104.5, 0.4583, 311.127, 3],
+  [104.5, 0.4583, 233.0819, 3],
+  [105.0, 0.5, 1046.5023, 0],
+  [105.0, 0.5, 523.2511, 0],
+  [105.0, 0.5, 830.6094, 0],
+  [105.0, 0.5, 349.2282, 3],
+  [105.0, 0.5, 207.6523, 3],
+  [105.0, 0.5, 261.6256, 3],
+  [105.5, 0.4583, 932.3275, 0],
+  [105.5, 0.4583, 466.1638, 0],
+  [105.5, 0.4583, 739.9888, 0],
+  [105.5, 0.4583, 184.9972, 3],
+  [105.5, 0.4583, 233.0819, 3],
+  [105.5, 0.4583, 311.127, 3],
+  [106.0, 0.5, 1108.7305, 0],
+  [106.0, 0.5, 554.3653, 0],
+  [106.0, 0.5, 932.3275, 0],
+  [106.0, 0.5, 466.1638, 3],
+  [106.0, 0.5, 369.9944, 3],
+  [106.0, 0.5, 277.1826, 3],
+  [106.5, 0.25, 932.3275, 0],
+  [106.5, 0.25, 622.254, 0],
+  [106.5, 0.25, 1244.5079, 0],
+  [106.5, 0.25, 466.1638, 3],
+  [106.5, 0.25, 369.9944, 3],
+  [106.5, 0.25, 311.127, 3],
+  [106.75, 3.0, 349.2282, 3],
+  [106.7917, 2.9583, 415.3047, 3],
+  [106.8333, 2.9167, 554.3653, 3],
+  [106.875, 2.875, 698.4565, 3],
+  [106.9167, 2.8333, 830.6094, 0],
+  [106.9583, 2.7917, 1108.7305, 0],
+  [107.0, 2.75, 1661.2188, 0],
+  [109.75, 1.5, 329.6276, 3],
+  [109.7854, 1.4646, 415.3047, 3],
+  [109.8208, 1.4292, 466.1638, 3],
+  [109.8563, 1.3937, 554.3653, 3],
+  [109.8917, 1.3583, 659.2551, 3],
+  [109.9271, 1.3229, 830.6094, 0],
+  [109.9625, 1.2875, 1108.7305, 0],
+  [110.0, 1.25, 1661.2188, 0],
+  [111.25, 3.0, 311.127, 3],
+  [111.2854, 2.9646, 369.9944, 3],
+  [111.3208, 2.9292, 415.3047, 3],
+  [111.3563, 2.8937, 554.3653, 3],
+  [111.3917, 2.8583, 622.254, 3],
+  [111.4271, 2.8229, 830.6094, 0],
+  [111.4625, 2.7875, 1108.7305, 0],
+  [111.5, 2.75, 1661.2188, 0],
+  [114.25, 1.75, 207.6523, 3],
+  [114.2917, 1.7083, 311.127, 3],
+  [114.3333, 1.6667, 369.9944, 3],
+  [114.375, 1.625, 523.2511, 3],
+  [114.4167, 1.5833, 415.3047, 0],
+  [114.4583, 1.5417, 622.254, 0],
+  [114.5, 1.5, 830.6094, 0],
+  [116.0, 3.0, 349.2282, 0],
+  [116.0, 3.0, 415.3047, 0],
+  [116.0, 0.75, 69.2957, 2],
+  [116.25, 0.25, 103.8262, 2],
+  [116.5, 0.25, 138.5913, 3],
+  [116.75, 0.25, 174.6141, 3],
+  [117.0, 0.25, 207.6523, 3],
+  [117.25, 0.25, 277.1826, 3],
+  [117.5, 0.75, 87.3071, 2],
+  [117.75, 0.25, 130.8128, 2],
+  [118.0, 0.25, 174.6141, 3],
+  [118.25, 0.25, 207.6523, 3],
+  [118.5, 0.25, 261.6256, 3],
+  [118.75, 0.25, 349.2282, 3],
+  [119.0, 1.0, 493.8833, 0],
+  [119.0, 1.5, 415.3047, 0],
+  [119.0, 0.75, 103.8262, 2],
+  [119.25, 0.25, 164.8138, 3],
+  [119.5, 0.25, 207.6523, 3],
+  [119.75, 0.25, 246.9417, 3],
+  [120.0, 0.5, 554.3653, 0],
+  [120.0, 0.25, 329.6276, 3],
+  [120.25, 0.2458, 415.3047, 3],
+  [120.5, 2.7292, 349.2282, 0],
+  [120.5, 3.0, 415.3047, 0],
+  [120.5, 0.75, 69.2957, 2],
+  [120.75, 0.25, 103.8262, 2],
+  [121.0, 0.25, 138.5913, 3],
+  [121.25, 0.25, 174.6141, 3],
+  [121.5, 0.25, 207.6523, 3],
+  [121.75, 0.25, 277.1826, 3],
+  [122.0, 0.75, 87.3071, 2],
+  [122.25, 0.25, 130.8128, 2],
+  [122.5, 0.25, 174.6141, 3],
+  [122.75, 0.25, 207.6523, 3],
+  [123.0, 0.25, 261.6256, 3],
+  [123.25, 0.25, 349.2282, 3],
+  [123.5, 1.0, 493.8833, 0],
+  [123.5, 1.0, 415.3047, 0],
+  [123.5, 0.75, 103.8262, 2],
+  [123.75, 0.25, 164.8138, 3],
+  [124.0, 0.25, 207.6523, 3],
+  [124.25, 0.25, 246.9417, 3],
+  [124.5, 0.5, 415.3047, 0],
+  [124.75, 0.25, 329.6276, 3],
+  [125.0, 1.0, 554.3653, 0],
+  [125.0, 1.0, 349.2282, 0],
+  [125.0, 0.25, 69.2957, 2],
+  [125.25, 0.25, 103.8262, 2],
+  [125.5, 0.25, 138.5913, 3],
+  [125.75, 0.25, 174.6141, 3],
+  [126.0, 0.5, 415.3047, 0],
+  [126.0, 0.5, 622.254, 0],
+  [126.0, 0.25, 207.6523, 3],
+  [126.25, 0.25, 277.1826, 3],
+  [126.5, 1.5, 554.3653, 0],
+  [126.5, 1.5, 698.4565, 0],
+  [126.5, 0.25, 349.2282, 3],
+  [126.75, 0.25, 415.3047, 3],
+  [127.0, 0.25, 349.2282, 3],
+  [127.25, 0.25, 277.1826, 3],
+  [127.5, 0.25, 207.6523, 3],
+  [127.75, 0.25, 174.6141, 3],
+  [128.0, 1.0, 554.3653, 0],
+  [128.0, 1.0, 349.2282, 0],
+  [128.0, 0.25, 207.6523, 3],
+  [128.25, 0.25, 174.6141, 3],
+  [128.5, 0.25, 138.5913, 3],
+  [128.75, 0.25, 103.8262, 2],
+  [129.0, 0.5, 698.4565, 0],
+  [129.0, 0.5, 554.3653, 0],
+  [129.0, 0.25, 138.5913, 3],
+  [129.25, 0.25, 103.8262, 2],
+  [129.5, 0.5, 622.254, 0],
+  [129.5, 0.5, 783.9909, 0],
+  [129.5, 0.25, 77.7817, 2],
+  [129.75, 0.25, 116.5409, 2],
+  [130.0, 0.5, 554.3653, 0],
+  [130.0, 0.5, 698.4565, 0],
+  [130.0, 0.25, 155.5635, 3],
+  [130.25, 0.25, 195.9977, 3],
+  [130.5, 0.5, 466.1638, 0],
+  [130.5, 0.5, 554.3653, 0],
+  [130.5, 0.25, 233.0819, 3],
+  [130.75, 0.25, 311.127, 3],
+  [131.0, 0.5, 391.9954, 0],
+  [131.0, 1.5, 554.3653, 0],
+  [131.0, 1.5, 466.1638, 0],
+  [131.25, 0.25, 311.127, 3],
+  [131.5, 0.5, 349.2282, 0],
+  [131.5, 0.25, 233.0819, 3],
+  [131.75, 0.25, 195.9977, 3],
+  [132.0, 0.5, 277.1826, 0],
+  [132.0, 0.25, 155.5635, 3],
+  [132.25, 0.25, 116.5409, 2],
+  [132.5, 0.75, 277.1826, 0],
+  [132.5, 0.25, 77.7817, 2],
+  [132.75, 0.25, 116.5409, 2],
+  [133.0, 0.25, 155.5635, 3],
+  [133.25, 0.75, 233.0819, 1],
+  [133.25, 0.25, 195.9977, 3],
+  [133.5, 0.25, 155.5635, 3],
+  [133.75, 0.25, 116.5409, 2],
+  [134.0, 3.0, 466.1638, 0],
+  [134.0, 1.5, 103.8262, 2],
+  [134.25, 0.25, 155.5635, 3],
+  [134.5, 0.25, 184.9972, 3],
+  [134.75, 0.25, 233.0819, 3],
+  [135.0, 0.25, 261.6256, 3],
+  [135.25, 0.25, 369.9944, 3],
+  [135.5, 1.5, 92.4986, 2],
+  [135.75, 0.25, 138.5913, 3],
+  [136.0, 0.25, 184.9972, 3],
+  [136.25, 0.25, 233.0819, 3],
+  [136.5, 0.25, 277.1826, 3],
+  [136.75, 0.25, 369.9944, 3],
+  [137.0, 1.0, 523.2511, 0],
+  [137.0, 1.5, 87.3071, 2],
+  [137.25, 0.25, 130.8128, 2],
+  [137.5, 0.25, 174.6141, 3],
+  [137.75, 0.25, 207.6523, 3],
+  [138.0, 0.5, 698.4565, 0],
+  [138.0, 0.5, 261.6256, 3],
+  [138.0146, 0.25, 415.3047, 0],
+  [138.2354, 0.25, 349.2282, 0],
+  [138.5313, 3.0, 466.1638, 0],
+  [138.5313, 1.5, 103.8262, 2],
+  [138.7813, 0.25, 155.5635, 3],
+  [139.0313, 0.25, 184.9972, 3],
+  [139.2813, 0.25, 233.0819, 3],
+  [139.5313, 0.25, 261.6256, 3],
+  [139.7813, 0.25, 369.9944, 3],
+  [140.0313, 1.5, 92.4986, 2],
+  [140.2813, 0.25, 138.5913, 3],
+  [140.5313, 0.25, 184.9972, 3],
+  [140.7813, 0.25, 233.0819, 3],
+  [141.0313, 0.25, 277.1826, 3],
+  [141.2813, 0.25, 369.9944, 3],
+  [141.5313, 1.0, 523.2511, 0],
+  [141.5313, 1.5, 87.3071, 2],
+  [141.7813, 0.25, 130.8128, 2],
+  [142.0313, 0.25, 174.6141, 3],
+  [142.2813, 0.25, 207.6523, 3],
+  [142.5313, 0.5, 698.4565, 0],
+  [142.5313, 0.5, 261.6256, 3],
+  [142.5458, 0.25, 415.3047, 0],
+  [142.7667, 0.25, 349.2282, 0],
+  [143.0, 2.25, 739.9888, 0],
+  [143.0, 1.5, 77.7817, 2],
+  [143.25, 0.25, 116.5409, 2],
+  [143.5, 0.25, 155.5635, 3],
+  [143.75, 0.25, 184.9972, 3],
+  [144.0, 0.25, 233.0819, 3],
+  [144.25, 0.25, 311.127, 3],
+  [144.5, 0.2458, 369.9944, 3],
+  [144.75, 0.5, 369.9944, 0],
+  [145.0, 0.25, 466.1638, 0],
+  [145.25, 0.75, 698.4565, 0],
+  [145.25, 0.75, 349.2282, 3],
+  [145.5, 0.25, 369.9944, 0],
+  [145.75, 0.25, 466.1638, 0],
+  [146.0, 0.75, 587.3295, 0],
+  [146.0, 0.75, 293.6648, 3],
+  [146.25, 0.25, 369.9944, 0],
+  [146.5, 0.25, 466.1638, 0],
+  [146.75, 0.75, 622.254, 0],
+  [146.75, 0.75, 311.127, 3],
+  [147.0, 0.25, 369.9944, 0],
+  [147.25, 0.25, 466.1638, 0],
+  [147.5, 1.2396, 932.3275, 0],
+  [147.5, 0.75, 293.6648, 3],
+  [147.75, 0.25, 369.9944, 3],
+  [148.0, 0.25, 466.1638, 3],
+  [148.25, 0.25, 466.1638, 3],
+  [148.5, 0.25, 739.9888, 3],
+  [148.75, 1.5, 932.3275, 3],
+  [149.0, 0.75, 311.127, 3],
+  [149.25, 0.25, 369.9944, 3],
+  [149.5, 0.25, 466.1638, 3],
+  [149.75, 0.25, 466.1638, 3],
+  [150.0, 0.25, 739.9888, 3],
+  [150.25, 0.25, 932.3275, 3],
+  [150.5, 1.2396, 830.6094, 0],
+  [150.5, 0.25, 261.6256, 3],
+  [150.5, 0.75, 207.6523, 3],
+  [150.75, 0.25, 329.6276, 3],
+  [151.0, 0.25, 415.3047, 3],
+  [151.25, 0.25, 523.2511, 3],
+  [151.5, 0.25, 659.2551, 3],
+  [151.75, 0.2458, 830.6094, 3],
+  [152.0, 3.0, 698.4565, 0],
+  [152.0, 3.0, 830.6094, 0],
+  [152.0, 1.5, 138.5913, 3],
+  [152.25, 0.25, 207.6523, 3],
+  [152.5, 0.25, 277.1826, 3],
+  [152.75, 0.25, 349.2282, 3],
+  [153.0, 0.25, 415.3047, 3],
+  [153.25, 0.25, 554.3653, 3],
+  [153.5, 0.25, 207.6523, 3],
+  [153.5, 1.5, 174.6141, 3],
+  [153.75, 0.25, 261.6256, 3],
+  [154.0, 0.25, 349.2282, 3],
+  [154.25, 0.25, 415.3047, 3],
+  [154.5, 0.25, 523.2511, 3],
+  [154.75, 0.25, 698.4565, 3],
+  [155.0, 1.0, 987.7666, 0],
+  [155.0, 1.0, 830.6094, 0],
+  [155.0, 0.25, 246.9417, 3],
+  [155.0, 1.5, 207.6523, 3],
+  [155.25, 0.25, 329.6276, 3],
+  [155.5, 0.25, 415.3047, 3],
+  [155.75, 0.25, 493.8833, 3],
+  [156.0, 0.5, 1108.7305, 0],
+  [156.0, 0.25, 659.2551, 3],
+  [156.25, 0.2458, 830.6094, 3],
+  [156.5, 3.0, 830.6094, 0],
+  [156.5, 3.0, 698.4565, 0],
+  [156.5, 1.5, 138.5913, 3],
+  [156.75, 0.25, 207.6523, 3],
+  [157.0, 0.25, 277.1826, 3],
+  [157.25, 0.25, 349.2282, 3],
+  [157.5, 0.25, 415.3047, 3],
+  [157.75, 0.25, 554.3653, 3],
+  [158.0, 0.25, 207.6523, 3],
+  [158.0, 1.5, 174.6141, 3],
+  [158.25, 0.25, 261.6256, 3],
+  [158.5, 0.25, 349.2282, 3],
+  [158.75, 0.25, 415.3047, 3],
+  [159.0, 0.25, 523.2511, 3],
+  [159.25, 0.25, 698.4565, 3],
+  [159.5, 1.0, 830.6094, 0],
+  [159.5, 1.0, 987.7666, 0],
+  [159.5, 0.25, 246.9417, 3],
+  [159.5, 1.5, 207.6523, 3],
+  [159.75, 0.25, 329.6276, 3],
+  [160.0, 0.25, 415.3047, 3],
+  [160.25, 0.25, 493.8833, 3],
+  [160.5, 0.5, 830.6094, 0],
+  [160.5, 0.25, 830.6094, 3],
+  [160.75, 0.25, 659.2551, 3],
+  [161.0, 1.5, 1108.7305, 0],
+  [161.0, 0.25, 277.1826, 3],
+  [161.0, 0.75, 246.9417, 3],
+  [161.25, 0.25, 329.6276, 3],
+  [161.5, 0.25, 415.3047, 3],
+  [161.75, 0.25, 554.3653, 0],
+  [161.75, 0.75, 493.8833, 3],
+  [162.0, 0.5, 830.6094, 0],
+  [162.25, 0.25, 659.2551, 0],
+  [162.5, 1.5, 1318.5102, 0],
+  [162.5, 0.25, 329.6276, 3],
+  [162.5, 0.75, 277.1826, 3],
+  [162.75, 0.25, 415.3047, 3],
+  [163.0, 0.25, 493.8833, 3],
+  [163.25, 0.25, 659.2551, 0],
+  [163.25, 0.75, 554.3653, 3],
+  [163.5, 0.5, 1108.7305, 0],
+  [163.75, 0.25, 830.6094, 0],
+  [164.0, 1.5, 1661.2188, 0],
+  [164.0, 0.25, 415.3047, 3],
+  [164.0, 0.75, 329.6276, 3],
+  [164.25, 0.25, 493.8833, 3],
+  [164.5, 0.25, 554.3653, 3],
+  [164.75, 0.25, 830.6094, 0],
+  [164.75, 0.75, 659.2551, 3],
+  [165.0, 0.5, 1318.5102, 0],
+  [165.25, 0.25, 987.7666, 0],
+  [165.5, 1.5, 1661.2188, 0],
+  [165.5, 0.75, 415.3047, 3],
+  [165.75, 0.25, 440.0, 3],
+  [166.0, 0.25, 554.3653, 3],
+  [166.25, 0.25, 830.6094, 0],
+  [166.5, 0.25, 1108.7305, 0],
+  [166.75, 0.25, 880.0, 0],
+  [167.0, 3.0, 1479.9777, 0],
+  [167.0, 0.75, 369.9944, 3],
+  [167.25, 0.25, 440.0, 3],
+  [167.5, 0.25, 554.3653, 3],
+  [167.75, 0.25, 739.9888, 0],
+  [168.0, 0.25, 1108.7305, 0],
+  [168.25, 0.25, 880.0, 0],
+  [168.5, 0.25, 369.9944, 3],
+  [168.5, 0.75, 349.2282, 3],
+  [168.75, 0.25, 440.0, 3],
+  [169.0, 0.25, 554.3653, 3],
+  [169.25, 0.25, 739.9888, 0],
+  [169.5, 0.25, 1108.7305, 0],
+  [169.75, 0.25, 880.0, 0],
+  [170.0, 3.0, 1479.9777, 0],
+  [170.0, 0.75, 329.6276, 3],
+  [170.25, 0.25, 369.9944, 3],
+  [170.5, 0.25, 440.0, 3],
+  [170.75, 0.25, 739.9888, 0],
+  [171.0, 0.25, 1108.7305, 0],
+  [171.25, 0.25, 880.0, 0],
+  [171.5, 0.25, 369.9944, 3],
+  [171.5, 0.75, 311.127, 3],
+  [171.75, 0.25, 440.0, 3],
+  [172.0, 0.25, 554.3653, 3],
+  [172.25, 0.25, 739.9888, 0],
+  [172.5, 0.25, 1108.7305, 0],
+  [172.75, 0.25, 880.0, 0],
+  [173.0, 1.0, 1760.0, 0],
+  [173.0, 0.25, 329.6276, 3],
+  [173.0, 0.75, 277.1826, 3],
+  [173.25, 0.25, 440.0, 3],
+  [173.5, 0.25, 554.3653, 3],
+  [173.75, 0.25, 659.2551, 3],
+  [174.0, 0.5, 2217.461, 0],
+  [174.25, 0.25, 1108.7305, 0],
+  [174.5, 3.0, 739.9888, 0],
+  [174.5, 0.75, 246.9417, 3],
+  [174.75, 0.25, 311.127, 3],
+  [175.0, 0.25, 369.9944, 3],
+  [175.25, 0.25, 369.9944, 0],
+  [175.5, 0.25, 554.3653, 0],
+  [175.75, 0.25, 440.0, 0],
+  [176.0, 0.75, 220.0, 3],
+  [176.25, 0.25, 277.1826, 3],
+  [176.5, 0.25, 329.6276, 3],
+  [176.75, 0.25, 369.9944, 0],
+  [177.0, 0.25, 554.3653, 0],
+  [177.25, 0.25, 440.0, 0],
+  [177.5, 1.0, 880.0, 0],
+  [177.5, 0.75, 207.6523, 3],
+  [177.75, 0.25, 277.1826, 3],
+  [178.0, 0.25, 329.6276, 3],
+  [178.25, 0.25, 440.0, 3],
+  [178.5, 0.25, 659.2551, 0],
+  [178.5, 0.5, 1108.7305, 0],
+  [178.75, 0.25, 880.0, 0],
+  [179.0, 0.5, 1108.7305, 0],
+  [179.0, 0.5, 1318.5102, 0],
+  [179.25, 0.25, 277.1826, 3],
+  [179.5, 0.5, 987.7666, 0],
+  [179.5, 0.5, 1244.5079, 0],
+  [179.5, 0.25, 329.6276, 3],
+  [179.75, 0.25, 369.9944, 3],
+  [180.0, 0.5, 880.0, 0],
+  [180.0, 0.5, 1108.7305, 0],
+  [180.0, 0.25, 440.0, 3],
+  [180.25, 0.25, 554.3653, 3],
+  [180.5, 0.75, 987.7666, 0],
+  [180.5, 0.75, 830.6094, 0],
+  [180.5, 0.25, 659.2551, 3],
+  [180.75, 0.25, 739.9888, 3],
+  [181.0, 0.25, 659.2551, 3],
+  [181.25, 1.25, 880.0, 0],
+  [181.25, 1.25, 739.9888, 0],
+  [181.25, 0.25, 554.3653, 3],
+  [181.5, 0.25, 440.0, 3],
+  [181.75, 0.25, 369.9944, 3],
+  [182.0, 0.25, 329.6276, 3],
+  [182.25, 0.25, 369.9944, 3],
+  [182.5, 0.5, 659.2551, 0],
+  [182.5, 0.5, 830.6094, 0],
+  [182.5, 0.25, 329.6276, 3],
+  [182.75, 0.25, 277.1826, 3],
+  [183.0, 0.5, 622.254, 0],
+  [183.0, 0.5, 739.9888, 0],
+  [183.0, 0.25, 220.0, 3],
+  [183.25, 0.25, 184.9972, 3],
+  [183.5, 0.5, 659.2551, 0],
+  [183.5, 0.5, 554.3653, 0],
+  [183.5, 0.25, 92.4986, 2],
+  [183.75, 0.25, 138.5913, 3],
+  [184.0, 0.5, 493.8833, 0],
+  [184.0, 0.5, 622.254, 0],
+  [184.0, 0.25, 164.8138, 3],
+  [184.25, 0.25, 184.9972, 3],
+  [184.5, 0.5, 554.3653, 0],
+  [184.5, 0.5, 440.0, 0],
+  [184.5, 0.25, 220.0, 3],
+  [184.75, 0.25, 277.1826, 3],
+  [185.0, 0.5, 415.3047, 0],
+  [185.0, 0.5, 493.8833, 0],
+  [185.0, 0.25, 329.6276, 3],
+  [185.25, 0.25, 277.1826, 3],
+  [185.5, 0.5, 440.0, 0],
+  [185.5, 0.5, 369.9944, 0],
+  [185.5, 0.25, 220.0, 3],
+  [185.75, 0.25, 184.9972, 3],
+  [186.0, 1.0, 329.6276, 0],
+  [186.0, 1.0, 415.3047, 0],
+  [186.0, 0.25, 164.8138, 3],
+  [186.25, 0.25, 138.5913, 3],
+  [186.5, 1.5, 220.0, 1],
+  [186.5, 0.25, 92.4986, 2],
+  [186.75, 0.25, 138.5913, 3],
+  [187.0, 0.5, 311.127, 0],
+  [187.0, 0.5, 369.9944, 0],
+  [187.0, 0.25, 92.4986, 2],
+  [187.25, 0.25, 138.5913, 3],
+  [187.5, 0.5, 329.6276, 0],
+  [187.5, 0.5, 277.1826, 0],
+  [187.5, 0.25, 92.4986, 2],
+  [187.75, 0.25, 138.5913, 3],
+  [188.0, 3.0, 311.127, 0],
+  [188.0, 1.0, 184.9972, 1],
+  [188.0, 0.25, 103.8262, 2],
+  [188.25, 0.25, 155.5635, 3],
+  [188.5, 0.25, 103.8262, 2],
+  [188.75, 0.25, 155.5635, 3],
+  [189.0, 0.5, 207.6523, 1],
+  [189.0, 0.25, 103.8262, 2],
+  [189.25, 0.25, 155.5635, 3],
+  [189.5, 1.0, 233.0819, 1],
+  [189.5, 0.25, 103.8262, 2],
+  [189.75, 0.25, 155.5635, 3],
+  [190.0, 0.25, 103.8262, 2],
+  [190.25, 0.25, 155.5635, 3],
+  [190.5, 0.5, 277.1826, 0],
+  [190.5, 0.25, 103.8262, 2],
+  [190.75, 0.25, 155.5635, 3],
+  [191.0, 1.0, 311.127, 0],
+  [191.0, 1.0, 369.9944, 0],
+  [191.0, 1.5, 261.6256, 1],
+  [191.0, 0.25, 103.8262, 2],
+  [191.25, 0.25, 155.5635, 3],
+  [191.5, 0.25, 103.8262, 2],
+  [191.75, 0.25, 155.5635, 3],
+  [192.0, 0.5, 466.1638, 0],
+  [192.0, 0.5, 311.127, 0],
+  [192.0, 0.5, 369.9944, 0],
+  [192.0, 0.25, 103.8262, 2],
+  [192.25, 0.25, 155.5635, 3],
+  [192.5, 3.0, 311.127, 0],
+  [192.5, 1.0, 184.9972, 1],
+  [192.5, 0.25, 103.8262, 2],
+  [192.75, 0.25, 155.5635, 3],
+  [193.0, 0.25, 103.8262, 2],
+  [193.25, 0.25, 155.5635, 3],
+  [193.5, 0.5, 207.6523, 1],
+  [193.5, 0.25, 103.8262, 2],
+  [193.75, 0.25, 155.5635, 3],
+  [194.0, 1.0, 233.0819, 1],
+  [194.0, 0.25, 103.8262, 2],
+  [194.25, 0.25, 155.5635, 3],
+  [194.5, 0.25, 103.8262, 2],
+  [194.75, 0.25, 155.5635, 3],
+  [195.0, 0.5, 277.1826, 0],
+  [195.0, 0.25, 103.8262, 2],
+  [195.25, 0.25, 155.5635, 3],
+  [195.5, 1.0, 311.127, 0],
+  [195.5, 1.0, 369.9944, 0],
+  [195.5, 1.5, 261.6256, 1],
+  [195.5, 0.25, 103.8262, 2],
+  [195.75, 0.25, 155.5635, 3],
+  [196.0, 0.25, 103.8262, 2],
+  [196.25, 0.25, 155.5635, 3],
+  [196.5, 0.5, 311.127, 0],
+  [196.5, 0.9583, 369.9944, 0],
+  [196.5, 0.9583, 466.1638, 0],
+  [196.5, 0.25, 103.8262, 2],
+  [196.75, 0.25, 155.5635, 3],
+  [197.0, 0.4583, 277.1826, 0],
+  [197.0, 0.25, 103.8262, 2],
+  [197.25, 0.25, 77.7817, 2],
+  [197.5, 0.5, 523.2511, 0],
+  [197.5, 0.5, 698.4565, 0],
+  [197.5, 0.5, 415.3047, 0],
+  [197.5, 0.25, 103.8262, 2],
+  [197.75, 0.25, 155.5635, 3],
+  [198.0, 0.5, 369.9944, 0],
+  [198.0, 0.5, 622.254, 0],
+  [198.0, 0.5, 466.1638, 0],
+  [198.0, 0.25, 103.8262, 2],
+  [198.25, 0.25, 155.5635, 3],
+  [198.5, 0.5, 277.1826, 0],
+  [198.5, 1.5, 466.1638, 0],
+  [198.5, 1.5, 369.9944, 0],
+  [198.5, 0.25, 207.6523, 3],
+  [198.75, 0.25, 155.5635, 3],
+  [199.0, 0.5, 233.0819, 1],
+  [199.0, 0.25, 207.6523, 3],
+  [199.25, 0.25, 311.127, 3],
+  [199.5, 0.5, 277.1826, 0],
+  [199.5, 0.25, 207.6523, 3],
+  [199.75, 0.25, 155.5635, 3],
+  [200.0, 1.5, 369.9944, 0],
+  [200.0, 1.5, 415.3047, 0],
+  [200.0, 0.5, 233.0819, 1],
+  [200.0, 0.25, 207.6523, 3],
+  [200.25, 0.25, 155.5635, 3],
+  [200.5, 0.5, 261.6256, 1],
+  [200.5, 0.25, 103.8262, 2],
+  [200.75, 0.25, 155.5635, 3],
+  [201.0, 0.5, 311.127, 0],
+  [201.0, 0.25, 103.8262, 2],
+  [201.25, 0.25, 77.7817, 2],
+  [201.5, 0.4583, 277.1826, 0],
+  [201.5, 0.4583, 466.1638, 0],
+  [201.5, 0.4583, 369.9944, 0],
+  [201.5, 0.25, 103.8262, 2],
+  [201.75, 0.25, 77.7817, 2],
+  [202.0, 0.5, 523.2511, 0],
+  [202.0, 0.5, 698.4565, 0],
+  [202.0, 0.5, 415.3047, 0],
+  [202.0, 0.25, 103.8262, 2],
+  [202.25, 0.25, 155.5635, 3],
+  [202.5, 0.5, 466.1638, 0],
+  [202.5, 0.5, 622.254, 0],
+  [202.5, 0.5, 369.9944, 0],
+  [202.5, 0.25, 103.8262, 2],
+  [202.75, 0.25, 155.5635, 3],
+  [203.0, 0.5, 277.1826, 0],
+  [203.0, 1.5, 466.1638, 0],
+  [203.0, 1.5, 369.9944, 0],
+  [203.0, 0.25, 207.6523, 3],
+  [203.25, 0.25, 155.5635, 3],
+  [203.5, 0.5, 233.0819, 1],
+  [203.5, 0.25, 207.6523, 3],
+  [203.75, 0.25, 311.127, 3],
+  [204.0, 0.5, 277.1826, 0],
+  [204.0, 0.25, 207.6523, 3],
+  [204.25, 0.25, 155.5635, 3],
+  [204.5, 1.5, 369.9944, 0],
+  [204.5, 1.5, 415.3047, 0],
+  [204.5, 0.5, 233.0819, 1],
+  [204.5, 0.25, 207.6523, 3],
+  [204.75, 0.25, 155.5635, 3],
+  [205.0, 0.5, 261.6256, 1],
+  [205.0, 0.25, 207.6523, 3],
+  [205.25, 0.25, 155.5635, 3],
+  [205.5, 0.5, 311.127, 0],
+  [205.5, 0.25, 207.6523, 3],
+  [205.75, 0.25, 155.5635, 3],
+  [206.0, 3.0, 622.254, 0],
+  [206.0, 1.0, 184.9972, 3],
+  [206.25, 0.25, 311.127, 0],
+  [206.5, 0.25, 369.9944, 0],
+  [206.75, 0.25, 466.1638, 0],
+  [207.0, 0.25, 369.9944, 0],
+  [207.0, 0.5, 207.6523, 3],
+  [207.25, 0.25, 311.127, 0],
+  [207.5, 1.0, 233.0819, 3],
+  [207.75, 0.25, 311.127, 0],
+  [208.0, 0.25, 369.9944, 0],
+  [208.25, 0.25, 466.1638, 0],
+  [208.5, 0.25, 369.9944, 0],
+  [208.5, 0.5, 277.1826, 3],
+  [208.75, 0.25, 311.127, 0],
+  [209.0, 1.0, 739.9888, 0],
+  [209.0, 1.5, 261.6256, 3],
+  [209.25, 0.25, 311.127, 3],
+  [209.5, 0.25, 369.9944, 3],
+  [209.75, 0.25, 466.1638, 3],
+  [210.0, 0.25, 523.2511, 0],
+  [210.0, 0.5, 932.3275, 0],
+  [210.25, 0.25, 622.254, 0],
+  [210.5, 3.0, 622.254, 0],
+  [210.5, 1.0, 184.9972, 3],
+  [210.75, 0.25, 311.127, 0],
+  [211.0, 0.25, 369.9944, 0],
+  [211.25, 0.25, 466.1638, 0],
+  [211.5, 0.25, 369.9944, 0],
+  [211.5, 0.5, 207.6523, 3],
+  [211.75, 0.25, 311.127, 0],
+  [212.0, 1.0, 233.0819, 3],
+  [212.25, 0.25, 311.127, 0],
+  [212.5, 0.25, 369.9944, 0],
+  [212.75, 0.25, 466.1638, 0],
+  [213.0, 0.25, 369.9944, 0],
+  [213.0, 0.5, 277.1826, 3],
+  [213.25, 0.25, 311.127, 0],
+  [213.5, 1.0, 739.9888, 0],
+  [213.5, 1.5, 261.6256, 3],
+  [213.75, 0.25, 311.127, 3],
+  [214.0, 0.25, 369.9944, 3],
+  [214.25, 0.25, 466.1638, 3],
+  [214.5, 0.25, 523.2511, 0],
+  [214.5, 0.5, 932.3275, 0],
+  [214.75, 0.25, 622.254, 0],
+  [215.0, 1.0, 1244.5079, 0],
+  [215.25, 0.25, 466.1638, 3],
+  [215.5, 0.25, 554.3653, 3],
+  [215.75, 0.25, 622.254, 0],
+];
+const CDLUNE_BEATS = 216.0;  // total beats in loop
+const CDLUNE_BPS   = 85.1833 / 60;  // avg BPM as beats per second
+
+const MUSIC_TRACKS = [
+  { evts: CDLUNE_EVT,   beats: CDLUNE_BEATS,   bps: CDLUNE_BPS   }, // Debussy: Clair de Lune
+];
+let _musicTrackIdx = 0;
+
+let _musicGain = null;
+function musicBus() {
+  if (_musicGain) return _musicGain;
+  const a = audio();
+  _musicGain = a.createGain();
+  _musicGain.gain.value = 0.28;  // quiet background — well below SFX level
+  _musicGain.connect(a.destination);  // dry path, bypasses the SFX reverb
+  return _musicGain;
+}
+
+// voice 0 = melody (full gain, brighter), 1 = inner (quieter, darker), 2 = bass (warmest), 3 = inner high
+const _VOL  = [0.1498, 0.0667, 0.1006, 0.0749]; // peak gain per voice
+const _FCUT = [249,    249,    249,    249];      // lowpass cutoff Hz per voice
+
+function _musicNote(freq, startTime, durSec, voice) {
+  if (!freq) return;
+  try {
+    const a = audio();
+    const osc = a.createOscillator(), filt = a.createBiquadFilter(), g = a.createGain();
+    osc.type = 'square';
+    osc.frequency.value = freq;
+    filt.type = 'lowpass';
+    filt.frequency.value = _FCUT[voice] ?? 249;
+    filt.Q.value = 0.50;
+    const pk  = _VOL[voice] ?? 0.09;
+    const sus = pk * 0.49;
+    const att = 0.008, dec = 0.126, rel = 0.500;
+    const relStart = Math.max(startTime + att + dec, startTime + durSec - rel);
+    g.gain.setValueAtTime(0, startTime);
+    g.gain.linearRampToValueAtTime(pk,  startTime + att);
+    g.gain.linearRampToValueAtTime(sus, startTime + att + dec);
+    g.gain.setValueAtTime(sus, relStart);
+    g.gain.linearRampToValueAtTime(0,   relStart + rel);
+    osc.connect(filt); filt.connect(g); g.connect(musicBus());
+    osc.start(startTime); osc.stop(relStart + rel + 0.02);
+  } catch(e) {}
+}
+
+// Like _musicNote but louder, brighter LP, and routed through the reverb master bus —
+// used for fanfares so they feel present rather than background.
+function _fanfareNote(freq, startTime, durSec, voice, lpfHz = 1100, gainMult = 1) {
+  if (!freq) return;
+  try {
+    const a = audio();
+    const osc = a.createOscillator(), filt = a.createBiquadFilter(), g = a.createGain();
+    osc.type = 'square';
+    osc.frequency.value = freq;
+    filt.type = 'lowpass';
+    filt.frequency.value = lpfHz;
+    filt.Q.value = 0.5;
+    const vols = [0.09, 0.045, 0.065, 0.05]; // half original levels
+    const pk  = (vols[voice] ?? 0.12) * gainMult;
+    const sus = pk * 0.49;
+    const att = 0.008, dec = 0.14, rel = 0.55;
+    const relStart = Math.max(startTime + att + dec, startTime + durSec - rel);
+    g.gain.setValueAtTime(0,   startTime);
+    g.gain.linearRampToValueAtTime(pk,  startTime + att);
+    g.gain.linearRampToValueAtTime(sus, startTime + att + dec);
+    g.gain.setValueAtTime(sus, relStart);
+    g.gain.linearRampToValueAtTime(0,   relStart + rel);
+    osc.connect(filt); filt.connect(g); g.connect(master());
+    osc.start(startTime); osc.stop(relStart + rel + 0.02);
+  } catch(e) {}
+}
+
+// Scheduler: events have absolute beat positions, evIdx just walks the sorted array
+const _ml = { running:false, loopStart:0, evIdx:0, timer:null, evts:null, beats:0, bps:1 };
+
+function _musicTick() {
+  if (!_ml.running) return;
+  const a = audio();
+  // Retry every 200 ms until the browser grants audio (autoplay policy)
+  if (a.state === 'suspended') { _ml.timer = setTimeout(_musicTick, 200); return; }
+  // Self-terminate as soon as we leave the attract cycle
+  if (state !== 'title' && state !== 'hiscores' && state !== 'globalscores' && state !== 'attract') { _ml.running = false; return; }
+  const LOOKAHEAD = 0.35, now = a.currentTime;
+  if (_ml.loopStart === 0) _ml.loopStart = now;
+  for (let guard = 0; guard < 500; guard++) {
+    if (_ml.evIdx >= _ml.evts.length) {
+      _ml.loopStart += _ml.beats / _ml.bps;
+      _ml.evIdx = 0;
+    }
+    const [bs, bd, hz, voice] = _ml.evts[_ml.evIdx];
+    const evTime = _ml.loopStart + bs / _ml.bps;
+    if (evTime > now + LOOKAHEAD) break;
+    _musicNote(hz * 0.5, Math.max(evTime, now), bd / _ml.bps * 0.92, voice);
+    _ml.evIdx++;
+  }
+  _ml.timer = setTimeout(_musicTick, 80);
+}
+
+function startMusic() {
+  if (_ml.running) return;
+  _ml.running = true; _ml.loopStart = 0; _ml.evIdx = 0;
+  _musicTick();
+}
+
+function stopMusic() {
+  _ml.running = false;
+  clearTimeout(_ml.timer);
+}
+
+function playLevelClearFanfare() {
+  // Option C · Whole Steps Up (parallel motion, octave +1, LPF 5750 Hz)
+  // Db → Eb → F major parallel chords, last note fades at ~2.9 s
+  const a = audio(), t0 = a.currentTime;
+  [
+    [0.000, 0.692, 554.3600, 3],
+    [0.000, 0.692, 698.4600, 0],
+    [0.000, 0.692, 830.6000, 1],
+    [0.538, 0.692, 622.2600, 3],
+    [0.538, 0.692, 784.0000, 0],
+    [0.538, 0.692, 932.3200, 1],
+    [1.077, 1.154, 698.4600, 3],
+    [1.077, 1.154, 880.0000, 0],
+    [1.077, 1.154, 1046.500, 1],
+  ].forEach(([start, dur, hz, voice]) => _fanfareNote(hz, t0 + start, dur, voice, 5750, 0.7));
+}
+
+let _introTmr = null;
+let levelReady = false;
+function startLevelIntro() {
+  clearTimeout(_introTmr);
+  levelReady = false;
+  hypLeft = 3;
+  if (level >= 2) shiftPaletteHue(Math.random() * 360);
+  levelTimer = 60; levelBonus = 0;
+  // Re-centre ship at the start of every level
+  if (ship) {
+    ship.x = W/2; ship.y = H/2;
+    ship.vx = 0; ship.vy = 0;
+    ship.angle = 0; ship.angleVel = 0;
+    ship.alive = true;
+  }
+  state = 'levelstart';
+  spawnLevel();
+  playFanfare();
+  // Enable "press any key" only after fanfare finishes (~2.1 s at ×1.3 tempo)
+  _introTmr = setTimeout(() => { levelReady = true; }, 2200);
+}
+function beginPlay() {
+  if (state !== 'levelstart') return;
+  stopMusic();
+  state = 'playing'; invTmr = 160; fireTmr = 0; heat = 0; _fireLock = 60;
+  levelTimer = 60; levelBonus = 0;
+  startBeat();
+}
+
+// ============================================================
+//  GAME STATE
+// ============================================================
+let state   = 'splash';  // splash | title | playing | dead | gameover
+let _splashAnimFrame = 0;   // counts up each draw call; drives the title reveal animation
+let _splashStrokes   = null; // cached sorted stroke list built on first splash draw
+let score   = 0;
+let hiScore = scores[0].score;
+let lives   = 3;
+// Life icon blink: {index, frames, type:'lose'|'gain'} — set when a life changes
+let _lifeAnim = null;
+let level   = 1;
+let extraAt = 10000;
+let keys    = {};
+let fireTmr = 0;
+let invTmr  = 0;
+let ticker  = 0;          // frame counter for blinking text
+
+let ship, asteroids = [], bullets = [], particles = [], popups = [], rings = [], ufo, ufoSpawnTmr;
+let upgradePod = null, upgradePodTmr = 900 + Math.random() * 600;
+let upgradeActive = false, upgradeTmr = 0, _upgradeGunLeft = false;
+let hyperUpgradePod = null, hyperUpgradePodTmr = 1800 + Math.random() * 1200;
+let hyperUpgradeActive = false, hyperUpgradeTmr = 0;
+let hypLeft = 3;   // hyperspace jumps remaining this level
+let heat = 0;   // cannon heat 0–1: builds while trigger held, cools on release
+let _fireLock = 0; // frames remaining before cannon is enabled at level start
+let titleRocks = [];
+let levelTimer = 60;   // time bonus countdown (seconds)
+let levelBonus = 0;    // bonus awarded at level complete
+let nameInput = '', nameRank = -1;          // name-entry state (-1 = not pending)
+let attractTmr = null;                     // attract-mode cycle timer
+let demoShip = null, demoFireTmr = 0;     // attract-mode auto-pilot
+
+// Ship geometry
+const SHIP = [ [0,-18], [11,13], [0,7], [-11,13] ];
+const FLAME = (t) => [ [7,9], [0, 24 + t], [-7,9] ];
+
+// ============================================================
+//  FACTORIES
+// ============================================================
+function mkAsteroid(x, y, size) {
+  const n = 9 + Math.floor(Math.random()*5);
+  const R = size===3 ? 40 : size===2 ? 22 : 10;
+  const pts = Array.from({length:n}, (_,i) => {
+    const a = (i/n)*Math.PI*2;
+    const r = R*(0.6 + Math.random()*0.75);
+    return [Math.cos(a)*r, Math.sin(a)*r];
+  });
+  const spd = ((0.5 + Math.random()*0.8) * (4-size) * 0.55 + 0.2) * 0.75 * 0.9 * Math.pow(0.95, level - 1);
+  const dir = Math.random()*Math.PI*2;
+  return {
+    x, y,
+    vx: Math.cos(dir)*spd, vy: Math.sin(dir)*spd,
+    rot: 0, rotV: (Math.random()-0.5)*0.045,
+    size, pts, r: R*0.78, color: rndColor(),
+  };
+}
+
+function mkUFO() {
+  const side = Math.random() < 0.5 ? -30 : W + 30;
+  // Type selection: large UFO from level 2, small from level 4, alien from level 6.
+  // Probability of each shifts toward smaller/rarer types as level grows.
+  let type;
+  if (level >= 6) {
+    const alienChance = Math.min(0.18, 0.04 + (level - 6) * 0.014);
+    const smallChance = Math.min(0.60, 0.20 + (level - 4) * 0.04);
+    const r = Math.random();
+    type = r < alienChance ? 'alien' : r < alienChance + smallChance ? 'small' : 'big';
+  } else if (level >= 4) {
+    const smallChance = Math.min(0.50, 0.15 + (level - 4) * 0.08);
+    type = Math.random() < smallChance ? 'small' : 'big';
+  } else {
+    type = 'big';   // levels 2–3: large UFO only
+  }
+  const big = type === 'big';
+  const spd = type === 'alien' ? 2.0 : 1.44;
+  return {
+    x: side, y: 90 + Math.random() * (H - 180),
+    vx: side < 0 ? spd : -spd, vy: 0,
+    type, big,
+    r: type === 'alien' ? 7 : big ? 21 : 11,
+    fireTmr: big ? 110 : type === 'alien' ? 55 : 65,
+    sinePhase: Math.random() * Math.PI * 2,
+    color: '#ffffff',
+    trail: [],
+    ...(type === 'alien' ? {
+      erraticPhase:  Math.random() * Math.PI * 2,
+      erraticAmp:    1.6 + Math.random() * 1.0,
+      dirChangeTmr:  20 + Math.floor(Math.random() * 30),
+    } : {}),
+  };
+}
+
+function spawnUpgradePod() {
+  const edge = Math.floor(Math.random() * 4);
+  let sx, sy;
+  if      (edge === 0) { sx = Math.random() * W; sy = -50; }
+  else if (edge === 1) { sx = Math.random() * W; sy = H + 50; }
+  else if (edge === 2) { sx = -50;    sy = Math.random() * H; }
+  else                 { sx = W + 50; sy = Math.random() * H; }
+
+  // Orbit around screen centre, not the player — player can intercept it
+  const cx = W / 2, cy = H / 2;
+  const orbitRadius = Math.min(W, H) * 0.324; // ~20% larger than original
+  // Linear speed matched to orbit angular speed so there's no jolt when entering orbit
+  const podSpd = orbitRadius * 0.0175; // 0.025 × 0.7 (−30%)
+  const orbitAngle  = Math.atan2(sy - cy, sx - cx); // entry from spawn side
+  const orbitDir    = Math.random() < 0.5 ? 1 : -1;
+
+  // Initial velocity: heading toward screen centre so steering starts from a sane direction
+  const initA = Math.atan2(cy - sy, cx - sx);
+  upgradePod = {
+    x: sx, y: sy,
+    vx: Math.cos(initA) * podSpd, vy: Math.sin(initA) * podSpd,
+    spd: podSpd,
+    phase: 'approach',
+    orbitAngle, orbitAngleTravelled: 0,
+    orbitDir, orbitRadius,
+    sinePhase: Math.random() * Math.PI * 2,
+    rot: 0, r: 10,
+    _exitVx: 0, _exitVy: 0,
+  };
+}
+
+function spawnHyperUpgradePod() {
+  const edge = Math.floor(Math.random() * 4);
+  let sx, sy;
+  if      (edge === 0) { sx = Math.random() * W; sy = -50; }
+  else if (edge === 1) { sx = Math.random() * W; sy = H + 50; }
+  else if (edge === 2) { sx = -50;    sy = Math.random() * H; }
+  else                 { sx = W + 50; sy = Math.random() * H; }
+  const cx = W / 2, cy = H / 2;
+  const orbitRadius = Math.min(W, H) * 0.324;
+  const podSpd = orbitRadius * 0.0175;
+  const orbitAngle = Math.atan2(sy - cy, sx - cx);
+  const orbitDir   = Math.random() < 0.5 ? 1 : -1;
+  const initA = Math.atan2(cy - sy, cx - sx);
+  hyperUpgradePod = {
+    x: sx, y: sy,
+    vx: Math.cos(initA) * podSpd, vy: Math.sin(initA) * podSpd,
+    spd: podSpd,
+    phase: 'approach',
+    orbitAngle, orbitAngleTravelled: 0,
+    orbitDir, orbitRadius,
+    sinePhase: Math.random() * Math.PI * 2,
+    rot: 0, r: 10,
+    _exitVx: 0, _exitVy: 0,
+  };
+}
+
+// Smoothly rotate pod velocity toward (desX, desY) by at most maxTurn rad/frame.
+// Produces arc-shaped paths rather than instant direction changes.
+function steerPod(pod, desX, desY) {
+  const desA = Math.atan2(desY, desX);
+  const curA = Math.atan2(pod.vy, pod.vx);
+  let diff = desA - curA;
+  if (diff >  Math.PI) diff -= 2 * Math.PI;
+  if (diff < -Math.PI) diff += 2 * Math.PI;
+  const newA = curA + Math.max(-0.065, Math.min(0.065, diff));
+  pod.vx = Math.cos(newA) * pod.spd;
+  pod.vy = Math.sin(newA) * pod.spd;
+}
+
+function mkParticle(x, y, col = null) {
+  const a = Math.random()*Math.PI*2;
+  const spd = 1 + Math.random()*4;
+  return {
+    x, y,
+    vx: Math.cos(a)*spd, vy: Math.sin(a)*spd,
+    a,
+    life: 1, decay: 0.014 + Math.random()*0.022,
+    len: 6 + Math.random()*22,
+    col,
+  };
+}
+
+function burst(x, y, n=14, spd=3, col=null) {
+  for (let i=0;i<n;i++) particles.push({...mkParticle(x,y,col), vx:mkParticle(x,y).vx*(spd/3), vy:mkParticle(x,y).vy*(spd/3)});
+}
+function spawnRings(x, y, r, color, vx = 0, vy = 0) {
+  for (let i = 0; i < 3; i++)
+    rings.push({ x, y, r: 0, maxR: r * 2.5, life: 1, delay: i * 7, color, vx, vy });
+}
+function spawnDeathRings(x, y, vx = 0, vy = 0) {
+  for (let i = 0; i < 5; i++)
+    rings.push({ x, y, r: 0, dr: 8, maxR: 90, life: 1, delay: i * 16, color: 'white', vx, vy, frames: 90, t: 0, ease: true });
+}
+function drawRings() {
+  rings.forEach(r => {
+    if (r.delay > 0 || r.r <= 0) return;
+    ctx.globalAlpha = r.life * r.life;
+    ctx.strokeStyle = r.color || 'white';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
+    ctx.stroke();
+  });
+  ctx.globalAlpha = 1;
+}
+
+// ============================================================
+//  INIT
+// ============================================================
+function initGame() {
+  // Music self-terminates in _musicTick() when state leaves attract cycle.
+  clearTimeout(attractTmr);
+  ship = { x:W/2, y:H/2, vx:0, vy:0, angle:0, angleVel:0, alive:true, thrusting:false };
+  asteroids = []; bullets = []; particles = []; popups = [];
+  ufo = null; ufoSpawnTmr = 700 + Math.random() * 400;  // level 1 — no UFOs spawn anyway
+  upgradePod = null; upgradePodTmr = 900 + Math.random() * 600;
+  upgradeActive = false; upgradeTmr = 0; _upgradeGunLeft = false;
+  hyperUpgradePod = null; hyperUpgradePodTmr = 1800 + Math.random() * 1200;
+  hyperUpgradeActive = false; hyperUpgradeTmr = 0;
+  score = 0; lives = 3; level = 1; extraAt = 10000; _lifeAnim = null;
+  fireTmr = 0; invTmr = 150; heat = 0;
+  startLevelIntro();
+}
+
+function spawnLevel() {
+  const cx = W/2, cy = H/2;
+  for (let i = 0; i < 5+level; i++) {
+    let x, y;
+    do { x=Math.random()*W; y=Math.random()*H; }
+    while (Math.hypot(x-cx,y-cy) < 128);
+    asteroids.push(mkAsteroid(x, y, 3));
+  }
+}
+
+// ============================================================
+//  ATTRACT MODE
+// ============================================================
+function startAttractCycle() {
+  resetPalette();
+  if (!_ml.running) {
+    const trk = MUSIC_TRACKS[_musicTrackIdx % MUSIC_TRACKS.length];
+    _musicTrackIdx++;
+    _ml.evts = trk.evts; _ml.beats = trk.beats; _ml.bps = trk.bps;
+    startMusic();
+  }
+  clearTimeout(attractTmr);
+  // title (10 s) → hiscores (5 s) → globalscores (5 s) → attract gameplay (10 s) → repeat
+  attractTmr = setTimeout(() => {
+    if (state !== 'title') return;
+    state = 'hiscores';
+    attractTmr = setTimeout(() => {
+      if (state !== 'hiscores') return;
+      if (SUPABASE_URL) { state = 'globalscores'; fetchGlobalScores();
+        attractTmr = setTimeout(() => { if (state === 'globalscores') startAttractPlay(); }, 5000);
+      } else { startAttractPlay(); }
+    }, 5000);
+  }, 10000);
+}
+
+function startAttractPlay() {
+  clearTimeout(attractTmr);
+  state = 'attract';
+  asteroids = []; bullets = []; particles = []; popups = [];
+  for (let i=0;i<6;i++)
+    asteroids.push(mkAsteroid(Math.random()*W, Math.random()*H, 1+Math.floor(Math.random()*3)));
+  demoShip = { x:W/2, y:H/2, vx:0, vy:0, angle:0, angleVel:0, thrusting:false, alive:true };
+  demoFireTmr = 40;
+  attractTmr = setTimeout(() => { if (state === 'attract') { state='title'; startAttractCycle(); } }, 10000);
+}
+
+function updateDemoShip() {
+  // Classify asteroids: danger zone (<180px) vs target (nearest beyond danger)
+  const DANGER = 180, ENGAGE = 320;
+  let threatAngle = null, threatDist = Infinity;
+  let targetAngle = null, targetDist = Infinity;
+  for (const a of asteroids) {
+    const dx = a.x - demoShip.x, dy = a.y - demoShip.y;
+    const d = Math.hypot(dx, dy);
+    if (d < threatDist) { threatDist = d; threatAngle = Math.atan2(dy, dx); }
+    if (d >= DANGER && d < targetDist) { targetDist = d; targetAngle = Math.atan2(dy, dx); }
+  }
+  let tgt;
+  if (threatDist < DANGER) {
+    // Steer directly away from the threat
+    tgt = threatAngle + Math.PI + Math.PI/2;
+  } else if (targetAngle !== null && targetDist < ENGAGE) {
+    // Steer toward a reachable target
+    tgt = targetAngle + Math.PI/2;
+  } else if (targetAngle !== null) {
+    // Far target: head toward it
+    tgt = targetAngle + Math.PI/2;
+  } else {
+    tgt = demoShip.angle;
+  }
+  let diff = ((tgt - demoShip.angle) % (Math.PI*2) + Math.PI*3) % (Math.PI*2) - Math.PI;
+  demoShip.angleVel += Math.sign(diff) * 0.007;
+  demoShip.angleVel = Math.max(-0.09, Math.min(0.09, demoShip.angleVel));
+  if (threatDist >= DANGER && targetAngle === null) demoShip.angleVel *= 0.72;
+  demoShip.angle += demoShip.angleVel;
+  // Thrust: always when evading danger; otherwise only when not close enough to shoot
+  demoShip.thrusting = threatDist < DANGER || (targetAngle !== null && targetDist > 120);
+  if (demoShip.thrusting) {
+    const fa = demoShip.angle - Math.PI/2;
+    demoShip.vx += Math.cos(fa)*0.09; demoShip.vy += Math.sin(fa)*0.09;
+    const spd=Math.hypot(demoShip.vx,demoShip.vy);
+    if (spd>5) { demoShip.vx*=5/spd; demoShip.vy*=5/spd; }
+  }
+  demoShip.vx*=0.991; demoShip.vy*=0.991;
+  demoShip.x+=demoShip.vx; demoShip.y+=demoShip.vy; wrap(demoShip);
+  // Fire when lined up on a target
+  demoFireTmr--;
+  if (demoFireTmr<=0 && targetAngle !== null) {
+    const fa=demoShip.angle-Math.PI/2;
+    bullets.push({ x:demoShip.x+Math.cos(fa)*20, y:demoShip.y+Math.sin(fa)*20,
+      vx:Math.cos(fa)*10+demoShip.vx, vy:Math.sin(fa)*10+demoShip.vy, life:40, own:'ship' });
+    demoFireTmr=25;
+  }
+}
+
+// ============================================================
+//  UPDATE
+// ============================================================
+function wrap(o) {
+  // Standard toroidal wrap — keep coordinates in [0, W) × [0, H).
+  // Combined with 3×3 ghost rendering in drawAsteroid this is seamless:
+  // the object's position never jumps visually.
+  o.x = ((o.x % W) + W) % W;
+  o.y = ((o.y % H) + H) % H;
+}
+
+// Swept line-segment vs circle collision — tests the bullet's full trajectory
+// each frame, preventing fast-moving bullets from tunnelling through targets.
+function hitCircle(b, cx, cy, r) {
+  if (Math.hypot(b.x-cx, b.y-cy) < r) return true;       // end-point test
+  const x0=b.x-b.vx, y0=b.y-b.vy, dx=b.vx, dy=b.vy;    // start of segment
+  const fx=x0-cx, fy=y0-cy, a=dx*dx+dy*dy;
+  if (!a) return false;
+  const bb=2*(fx*dx+fy*dy), c=fx*fx+fy*fy-r*r;
+  const disc=bb*bb-4*a*c; if (disc<0) return false;
+  const sq=Math.sqrt(disc), t1=(-bb-sq)/(2*a), t2=(-bb+sq)/(2*a);
+  return (t1>=0&&t1<=1)||(t2>=0&&t2<=1);
+}
+
+// Wrap-aware bullet→circle hit: also tests the target's ghost copies near edges.
+// Fixes missed hits on asteroids whose visual polygon straddles a screen boundary.
+function hitCircleWrapped(b, cx, cy, r) {
+  if (hitCircle(b, cx, cy, r)) return true;
+  const ox = cx < 65 ? W : cx > W-65 ? -W : 0;
+  const oy = cy < 65 ? H : cy > H-65 ? -H : 0;
+  if (ox && hitCircle(b, cx+ox, cy,    r)) return true;
+  if (oy && hitCircle(b, cx,    cy+oy, r)) return true;
+  if (ox && oy && hitCircle(b, cx+ox, cy+oy, r)) return true;
+  return false;
+}
+
+// Toroidal distance — handles ship/asteroid proximity across screen edges.
+function wrapDist(x1, y1, x2, y2) {
+  let dx = Math.abs(x1-x2), dy = Math.abs(y1-y2);
+  if (dx > W/2) dx = W-dx;
+  if (dy > H/2) dy = H-dy;
+  return Math.hypot(dx, dy);
+}
+
+function update() {
+  ticker++;
+
+  // Particles run in all states
+  particles = particles.filter(p => p.life > 0);
+  particles.forEach(p => {
+    p.x += p.vx; p.y += p.vy;
+    p.vx *= 0.97; p.vy *= 0.97;
+    p.life -= p.decay;
+  });
+  rings = rings.filter(r => r.life > 0);
+  rings.forEach(r => {
+    r.x += r.vx; r.y += r.vy;
+    if (r.delay > 0) { r.delay--; return; }
+    if (r.ease) {
+      // Velocity-decay expansion: dr bleeds off each frame, giving an unmistakable slowdown
+      r.dr  *= 0.93;
+      r.r    = Math.min(r.maxR, r.r + r.dr);
+      r.t    = Math.min(1, r.t + 1 / (r.frames || 56));  // drives fade-out independently
+      r.life = Math.max(0, 1 - r.t);
+    } else {
+      r.r += r.maxR / (r.frames || 56);
+      r.life = Math.max(0, 1 - r.r / r.maxR);
+    }
+  });
+  popups = popups.filter(p => p.life > 0);
+  popups.forEach(p => { p.y -= 0.5; p.life -= 0.016; });
+
+  if (state === 'title' || state === 'hiscores' || state === 'globalscores') {
+    titleRocks.forEach(a => { a.x+=a.vx; a.y+=a.vy; a.rot+=a.rotV; wrap(a); });
+    return;
+  }
+
+  if (state === 'attract') {
+    if (asteroids.length === 0) {
+      for (let i=0;i<6;i++) asteroids.push(mkAsteroid(Math.random()*W, Math.random()*H, 1+Math.floor(Math.random()*3)));
+      demoShip.x=W/2; demoShip.y=H/2; demoShip.vx=0; demoShip.vy=0;
+    }
+    asteroids.forEach(a=>{a.x+=a.vx;a.y+=a.vy;a.rot+=a.rotV;wrap(a);});
+    bullets=bullets.filter(b=>b.life>0);
+    bullets.forEach(b=>{b.x+=b.vx;b.y+=b.vy;b.life--;wrap(b);});
+    updateDemoShip();
+    // Demo bullets vs asteroids (split/destroy, no scoring)
+    for (let bi=bullets.length-1;bi>=0;bi--) {
+      const b=bullets[bi];
+      for (let ai=asteroids.length-1;ai>=0;ai--) {
+        const a=asteroids[ai];
+        if (hitCircleWrapped(b, a.x, a.y, a.r)) {
+          burst(a.x,a.y,8+a.size*5,2+a.size,a.color);
+          spawnRings(a.x,a.y,a.r,a.color,a.vx,a.vy);
+          if (a.size>1) {
+            const off=a.r*0.4;
+            asteroids.push(mkAsteroid(a.x+(Math.random()-.5)*off,a.y+(Math.random()-.5)*off,a.size-1));
+            asteroids.push(mkAsteroid(a.x+(Math.random()-.5)*off,a.y+(Math.random()-.5)*off,a.size-1));
+          }
+          asteroids.splice(ai,1); b.life=0; break;
+        }
+      }
+    }
+    return;
+  }
+
+  if (state === 'splash' || state === 'gameover' || state === 'dead' || state === 'levelstart' || state === 'nameentry' || state === 'levelcomplete' || state === 'quitprompt' || state === 'paused') return;
+  levelTimer = Math.max(0, levelTimer - 1/60);
+
+  // ── Ship controls ──
+  if (ship.alive) {
+    // Rotation: accelerate while key held, quick decel (~0.2 s) on release
+    const rotL = !!keys['ArrowLeft'], rotR = !!keys['ArrowRight'];
+    if (rotL) ship.angleVel -= 0.0045;
+    if (rotR) ship.angleVel += 0.0045;
+    ship.angleVel = Math.max(-0.08, Math.min(0.08, ship.angleVel));
+    if (!rotL && !rotR) ship.angleVel *= 0.878;    // decel to ~2% in 30 frames (~0.5 s)
+    ship.angle += ship.angleVel;
+    ship.thrusting = !!keys['ArrowUp'];
+    if (ship.thrusting) {
+      const fa = ship.angle - Math.PI/2;
+      ship.vx += Math.cos(fa)*0.12; ship.vy += Math.sin(fa)*0.12;
+      const spd = Math.hypot(ship.vx, ship.vy);
+      if (spd > 9) { ship.vx *= 9/spd; ship.vy *= 9/spd; }
+      if (Math.random() < 0.45) {
+        noiseBurst(36, 0.16, 0.32, 0.30);  // sub-bass rumble
+        noiseBurst(72, 0.12, 0.18, 0.70);  // low-mid body
+      }
+    }
+    // Hyperspace (max 3 per level)
+    if (keys['ArrowDown'] && !ship._hyp && hypLeft > 0) {
+      hypLeft--;
+      ship._hyp = true;
+      ship.x = 60 + Math.random()*(W-120); ship.y = 60 + Math.random()*(H-120);
+      ship.vx = 0; ship.vy = 0;
+      invTmr = 90;
+      burst(ship.x, ship.y, 20, 4, '#8844CC');
+      tone(200,'sawtooth',0.3,0.3); tone(400,'sawtooth',0.2,0.2,0.15);
+    }
+    if (!keys['ArrowDown']) ship._hyp = false;
+
+    // Fire — heat builds per frame while trigger held; cools 2× faster on release
+    // heat < 0.5 → machine gun (~15/sec) | heat = 1.0 → 1 shot/sec
+    const firing = !!(keys[' '] || keys['Space']) && _fireLock <= 0;
+    if (firing) {
+      if (!upgradeActive && !hyperUpgradeActive) heat = Math.min(1, heat + 0.012);
+    } else {
+      heat = Math.max(0, heat - 0.008);
+    }
+    if (firing && fireTmr <= 0) {
+      const fa  = ship.angle - Math.PI/2;
+      const spd = 10;
+      if (hyperUpgradeActive && hyperUpgradeTmr > 0) {
+        // Five simultaneous streams at -10, -5, 0, +5, +10 degrees
+        [-10, -5, 0, 5, 10].forEach(deg => {
+          const spread = deg * Math.PI / 180;
+          bullets.push({
+            x: ship.x + Math.cos(fa)*20, y: ship.y + Math.sin(fa)*20,
+            vx: Math.cos(fa + spread)*spd + ship.vx,
+            vy: Math.sin(fa + spread)*spd + ship.vy,
+            life: 48, own: 'ship',
+          });
+        });
+      } else if (upgradeActive && upgradeTmr > 0) {
+        // Alternating left/right cannon: ±5° spread, ±5 px lateral offset
+        const side   = _upgradeGunLeft ? -1 : 1;
+        _upgradeGunLeft = !_upgradeGunLeft;
+        const spread = side * 5 * Math.PI / 180;
+        const perp   = fa + Math.PI / 2;
+        const ox = Math.cos(perp) * 5 * side;
+        const oy = Math.sin(perp) * 5 * side;
+        bullets.push({
+          x: ship.x + Math.cos(fa) * 18 + ox, y: ship.y + Math.sin(fa) * 18 + oy,
+          vx: Math.cos(fa + spread) * spd + ship.vx,
+          vy: Math.sin(fa + spread) * spd + ship.vy,
+          life: 48, own: 'ship', col: ORG,
+        });
+      } else {
+        bullets.push({
+          x: ship.x + Math.cos(fa)*20, y: ship.y + Math.sin(fa)*20,
+          vx: Math.cos(fa)*spd + ship.vx, vy: Math.sin(fa)*spd + ship.vy,
+          life: 48, own: 'ship',
+        });
+      }
+      SFX.fire();
+      const baseTmr = heat < 0.5 ? 5 : Math.round(5 + (heat - 0.5) * 114);
+      fireTmr = (upgradeActive || hyperUpgradeActive) ? Math.max(1, Math.round(baseTmr / 2)) : baseTmr;
+    }
+
+    ship.vx *= 0.991; ship.vy *= 0.991;
+    ship.x += ship.vx; ship.y += ship.vy;
+    wrap(ship);
+  }
+
+  if (fireTmr > 0) fireTmr--;
+  if (_fireLock > 0) _fireLock--;
+  if (invTmr  > 0) invTmr--;
+  if (upgradeTmr > 0) { upgradeTmr--; if (upgradeTmr === 0) upgradeActive = false; }
+  if (hyperUpgradeTmr > 0) { hyperUpgradeTmr--; if (hyperUpgradeTmr === 0) hyperUpgradeActive = false; }
+
+  // ── Asteroids ──
+  asteroids.forEach(a => { a.x+=a.vx; a.y+=a.vy; a.rot+=a.rotV; wrap(a); });
+
+  // ── Bullets ──
+  bullets = bullets.filter(b=>b.life>0);
+  bullets.forEach(b => { b.x+=b.vx; b.y+=b.vy; b.life--; wrap(b); });
+
+  // ── UFO / ALIEN ──
+  // UFOs appear from level 2; spawn rate scales with level.
+  ufoSpawnTmr -= 1;
+  if (level >= 2 && !ufo && ufoSpawnTmr <= 0 && asteroids.length > 4) {
+    ufo = mkUFO();
+    if (ufo.type === 'alien') startAlienSound(); else startUFOSound(ufo.big);
+    ufoSpawnTmr = Math.max(300, 700 - level * 25) + Math.random() * Math.max(150, 400 - level * 15);
+  }
+  if (ufo) {
+    if (ticker % 6 === 0) {
+      ufo.trail.push({ x: ufo.x, y: ufo.y });
+      if (ufo.trail.length > 5) ufo.trail.shift();
+    }
+    ufo.x += ufo.vx; ufo.y += ufo.vy;
+    if (ufo.type === 'alien') {
+      // Erratic homing: steers toward player with compound sine wobble overlay.
+      // vx/vy lerp toward a target derived from the player vector so it never escapes.
+      ufo.sinePhase    += 0.048;
+      ufo.erraticPhase += 0.075;
+      const dxP = ship.alive ? (ship.x - ufo.x) : 0;
+      const dyP = ship.alive ? (ship.y - ufo.y) : 0;
+      const targetVx = Math.max(-2.5, Math.min(2.5, dxP * 0.03))
+                     + Math.sin(ufo.sinePhase * 0.7) * 0.9;
+      const targetVy = Math.max(-2.5, Math.min(2.5, dyP * 0.03))
+                     + Math.sin(ufo.erraticPhase) * ufo.erraticAmp * 0.55
+                     + Math.sin(ufo.sinePhase * 1.6) * 0.7;
+      ufo.vx += (targetVx - ufo.vx) * 0.06;
+      ufo.vy += (targetVy - ufo.vy) * 0.06;
+      const spd = Math.hypot(ufo.vx, ufo.vy);
+      if (spd > 3.2) { ufo.vx *= 3.2 / spd; ufo.vy *= 3.2 / spd; }
+    } else {
+      // Standard UFO snake motion biased toward player y
+      ufo.sinePhase += 0.032;
+      const dyToPlayer = ship.alive ? (ship.y - ufo.y) : 0;
+      const bias = Math.max(-1.0, Math.min(1.0, dyToPlayer * 0.012));
+      ufo.vy = Math.sin(ufo.sinePhase) * 1.44 + bias;
+    }
+    ufo.fireTmr--;
+    if (ufo.fireTmr <= 0) {
+      const spread = ufo.type === 'alien' ? (Math.random() - 0.5) * 0.45 : 0;
+      const aim = ufo.big
+        ? Math.random() * Math.PI * 2
+        : Math.atan2(ship.y - ufo.y, ship.x - ufo.x) + spread;
+      bullets.push({ x:ufo.x, y:ufo.y, vx:Math.cos(aim)*1.65, vy:Math.sin(aim)*1.65, life:70, own:'ufo' });
+      tone(ufo.big ? 1200 : 800, 'square', 0.06, 0.12);
+      ufo.fireTmr = ufo.big ? 110 : ufo.type === 'alien' ? 55 : 65;
+    }
+    if (ufo.x < -80 || ufo.x > W+80 || ufo.y < -80 || ufo.y > H+80) {
+      ufo = null; stopUFOSound();
+    }
+  }
+
+  // ── UPGRADE POD ──
+  if (!upgradePod) {
+    upgradePodTmr--;
+    if (upgradePodTmr <= 0 && asteroids.length > 0) {
+      // With ≤4 rocks the pod rarely shows — only 10% chance of spawning
+      if (asteroids.length > 4 || Math.random() < 0.10) {
+        spawnUpgradePod();
+      }
+      upgradePodTmr = 900 + Math.random() * 600;
+    }
+  } else {
+    const pod = upgradePod;
+    const cx = W / 2, cy = H / 2; // fixed orbit centre — screen centre
+
+    pod.sinePhase += 0.038;
+
+    // Orange pixel trail — 2 sparks per frame
+    for (let i = 0; i < 2; i++) {
+      particles.push({
+        x: pod.x + (Math.random() - 0.5) * 5,
+        y: pod.y + (Math.random() - 0.5) * 5,
+        vx: (Math.random() - 0.5) * 0.6, vy: (Math.random() - 0.5) * 0.6,
+        a: Math.random() * Math.PI * 2,
+        life: 1.4 + Math.random() * 0.6,
+        decay: 0.045 + Math.random() * 0.035,  // fades in ~16-32 frames
+        len: 1.2, col: ORG,
+      });
+    }
+
+    if (pod.phase === 'approach') {
+      // Steer desired direction: radial-inward when far, blending to orbit-tangential as
+      // the pod nears the orbit circle. The max-turn-per-frame cap in steerPod turns
+      // this into a smooth curved arc rather than an instant direction change.
+      const curA  = Math.atan2(pod.y - cy, pod.x - cx);
+      const distC = Math.hypot(pod.x - cx, pod.y - cy);
+      if (distC <= pod.orbitRadius + 4) {
+        pod.orbitAngle = curA;
+        pod.phase = 'orbit';
+      } else {
+        const t    = Math.min(1, (distC - pod.orbitRadius) / 180); // 1=far, 0=at orbit
+        const desX = (cx - pod.x) / distC * t + (-Math.sin(curA) * pod.orbitDir) * (1 - t);
+        const desY = (cy - pod.y) / distC * t + ( Math.cos(curA) * pod.orbitDir) * (1 - t);
+        steerPod(pod, desX, desY);
+        pod.x += pod.vx; pod.y += pod.vy;
+      }
+    } else if (pod.phase === 'orbit') {
+      const angSpd = 0.0175 * pod.orbitDir; // matched to podSpd (−30%)
+      pod.orbitAngle += angSpd;
+      pod.orbitAngleTravelled += Math.abs(angSpd);
+      const wobble = Math.sin(pod.sinePhase * 2.7) * 9 + Math.sin(pod.sinePhase * 0.9) * 4;
+      const r = pod.orbitRadius + wobble;
+      pod.x = cx + Math.cos(pod.orbitAngle) * r;
+      pod.y = cy + Math.sin(pod.orbitAngle) * r;
+      // Keep tangent velocity ready for exit (matched to pod.spd)
+      pod._exitVx = -Math.sin(pod.orbitAngle) * pod.orbitDir * pod.spd;
+      pod._exitVy =  Math.cos(pod.orbitAngle) * pod.orbitDir * pod.spd;
+      if (pod.orbitAngleTravelled >= Math.PI * 6) {
+        pod.phase = 'exit';
+        pod.vx = pod._exitVx;   // seed exit with orbit tangent so steering starts smoothly
+        pod.vy = pod._exitVy;
+      }
+    } else { // exit — steer from tangential to radial-outward as distance grows
+      const curA  = Math.atan2(pod.y - cy, pod.x - cx);
+      const distC = Math.hypot(pod.x - cx, pod.y - cy);
+      const w     = Math.min(1, (distC - pod.orbitRadius) / 140); // 0=just left orbit, 1=far
+      const desX  = (-Math.sin(curA) * pod.orbitDir) * (1 - w) + (pod.x - cx) / distC * w;
+      const desY  = ( Math.cos(curA) * pod.orbitDir) * (1 - w) + (pod.y - cy) / distC * w;
+      steerPod(pod, desX, desY);
+      pod.x += pod.vx; pod.y += pod.vy;
+      if (pod.x < -120 || pod.x > W + 120 || pod.y < -120 || pod.y > H + 120)
+        upgradePod = null;
+    }
+
+    // Pod is collected by shooting it — see bullet collision loop below
+  }
+
+  // ── HYPER UPGRADE POD ──
+  if (!hyperUpgradePod) {
+    hyperUpgradePodTmr--;
+    if (hyperUpgradePodTmr <= 0 && asteroids.length > 0 && level >= 4) {
+      spawnHyperUpgradePod();
+      hyperUpgradePodTmr = 1800 + Math.random() * 1200;
+    }
+  } else {
+    const pod = hyperUpgradePod;
+    const cx = W / 2, cy = H / 2;
+    pod.sinePhase += 0.038;
+    // Cyan pixel trail
+    for (let i = 0; i < 2; i++) {
+      particles.push({
+        x: pod.x + (Math.random() - 0.5) * 5,
+        y: pod.y + (Math.random() - 0.5) * 5,
+        vx: (Math.random() - 0.5) * 0.6, vy: (Math.random() - 0.5) * 0.6,
+        a: Math.random() * Math.PI * 2,
+        life: 0.7 + Math.random() * 0.3,
+        decay: 0.09 + Math.random() * 0.07,
+        len: 1.2, col: '#00FFFF',
+      });
+    }
+    if (pod.phase === 'approach') {
+      const curA  = Math.atan2(pod.y - cy, pod.x - cx);
+      const distC = Math.hypot(pod.x - cx, pod.y - cy);
+      if (distC <= pod.orbitRadius + 4) {
+        pod.orbitAngle = curA; pod.phase = 'orbit';
+      } else {
+        const t    = Math.min(1, (distC - pod.orbitRadius) / 180);
+        const desX = (cx - pod.x) / distC * t + (-Math.sin(curA) * pod.orbitDir) * (1 - t);
+        const desY = (cy - pod.y) / distC * t + ( Math.cos(curA) * pod.orbitDir) * (1 - t);
+        steerPod(pod, desX, desY);
+        pod.x += pod.vx; pod.y += pod.vy;
+      }
+    } else if (pod.phase === 'orbit') {
+      const angSpd = 0.0175 * pod.orbitDir;
+      pod.orbitAngle += angSpd;
+      pod.orbitAngleTravelled += Math.abs(angSpd);
+      const wobble = Math.sin(pod.sinePhase * 2.7) * 9 + Math.sin(pod.sinePhase * 0.9) * 4;
+      const r = pod.orbitRadius + wobble;
+      pod.x = cx + Math.cos(pod.orbitAngle) * r;
+      pod.y = cy + Math.sin(pod.orbitAngle) * r;
+      pod._exitVx = -Math.sin(pod.orbitAngle) * pod.orbitDir * pod.spd;
+      pod._exitVy =  Math.cos(pod.orbitAngle) * pod.orbitDir * pod.spd;
+      if (pod.orbitAngleTravelled >= Math.PI * 6) {
+        pod.phase = 'exit';
+        pod.vx = pod._exitVx; pod.vy = pod._exitVy;
+      }
+    } else {
+      const curA  = Math.atan2(pod.y - cy, pod.x - cx);
+      const distC = Math.hypot(pod.x - cx, pod.y - cy);
+      const w     = Math.min(1, (distC - pod.orbitRadius) / 140);
+      const desX  = (-Math.sin(curA) * pod.orbitDir) * (1 - w) + (pod.x - cx) / distC * w;
+      const desY  = ( Math.cos(curA) * pod.orbitDir) * (1 - w) + (pod.y - cy) / distC * w;
+      steerPod(pod, desX, desY);
+      pod.x += pod.vx; pod.y += pod.vy;
+      if (pod.x < -120 || pod.x > W + 120 || pod.y < -120 || pod.y > H + 120)
+        hyperUpgradePod = null;
+    }
+    // Collected by shooting — see bullet collision loop below
+  }
+
+  // ── Collisions: ship bullets vs world ──
+  for (let bi = bullets.length-1; bi >= 0; bi--) {
+    const b = bullets[bi];
+    if (b.own !== 'ship') continue;
+
+    // vs asteroids
+    let hit = false;
+    for (let ai = asteroids.length-1; ai >= 0; ai--) {
+      const a = asteroids[ai];
+      if (hitCircleWrapped(b, a.x, a.y, a.r)) {
+        const pts = Math.round([0, 20, 50, 100][a.size] * (1 + (level - 1) * 0.05));
+        score += pts;
+        if (score >= extraAt) { if (lives < 5) { lives++; _lifeAnim = { index: lives-1, frames: 144, type: 'gain' }; SFX.life(); } extraAt+=10000; }
+        if (hiScore < score) hiScore = score;
+        popups.push({ x: a.x, y: a.y, text: String(pts), life: 1 });
+        [SFX.smlBoom, SFX.medBoom, SFX.bigBoom][a.size-1]?.();
+        burst(a.x, a.y, 8+a.size*5, 2+a.size, a.color);
+        spawnRings(a.x, a.y, a.r, a.color, a.vx, a.vy);
+        if (a.size > 1) {
+          const off = a.r*0.4;
+          asteroids.push(mkAsteroid(a.x+(Math.random()-.5)*off, a.y+(Math.random()-.5)*off, a.size-1));
+          asteroids.push(mkAsteroid(a.x+(Math.random()-.5)*off, a.y+(Math.random()-.5)*off, a.size-1));
+        }
+        asteroids.splice(ai, 1);
+        b.life = 0; hit = true; break;
+      }
+    }
+    if (hit) continue;
+
+    // vs UFO
+    if (ufo && hitCircleWrapped(b, ufo.x, ufo.y, ufo.r)) {
+      const pts = ufo.type === 'alien' ? 4000 : ufo.big ? 500 : 2000;
+      score += pts;
+      if (hiScore < score) hiScore = score;
+      if (score >= extraAt) { if (lives < 5) { lives++; SFX.life(); } extraAt+=10000; }
+      popups.push({ x: ufo.x, y: ufo.y, text: String(pts), life: 1 });
+      burst(ufo.x, ufo.y, 30, 4, ufo.color);
+      SFX.medBoom();
+      stopUFOSound(); ufo = null;
+      b.life = 0;
+    }
+
+    // vs upgrade pod — must be shot to collect
+    if (!hit && upgradePod && b.life > 0) {
+      const pod = upgradePod;
+      if (Math.hypot(b.x - pod.x, b.y - pod.y) < pod.r + 6) {
+        popups.push({ x: pod.x, y: pod.y, text: 'DUAL FIRE', life: 1, color: ORG });
+        burst(pod.x, pod.y, 24, 4, '#FFFF00');
+        spawnRings(pod.x, pod.y, pod.r * 2, '#FFFF00');
+        SFX.medBoom();
+        upgradeActive = true; upgradeTmr = 360; _upgradeGunLeft = false;
+        upgradePod = null;
+        b.life = 0;
+      }
+    }
+
+    // vs hyper upgrade pod — must be shot to collect
+    if (!hit && hyperUpgradePod && b.life > 0) {
+      const pod = hyperUpgradePod;
+      if (Math.hypot(b.x - pod.x, b.y - pod.y) < pod.r + 6) {
+        popups.push({ x: pod.x, y: pod.y, text: 'HYPER FIRE', life: 1, color: '#00FFFF' });
+        burst(pod.x, pod.y, 24, 4, '#00FFFF');
+        spawnRings(pod.x, pod.y, pod.r * 2, '#00FFFF');
+        SFX.medBoom();
+        hyperUpgradeActive = true; hyperUpgradeTmr = 600;
+        hyperUpgradePod = null;
+        b.life = 0;
+      }
+    }
+  }
+
+  // ── UFO bullets vs ship ──
+  if (ship.alive && invTmr <= 0) {
+    for (const b of bullets) {
+      if (b.own !== 'ufo') continue;
+      if (hitCircleWrapped(b, ship.x, ship.y, 10)) { killShip(); break; }
+    }
+  }
+
+  // ── UFO body vs ship ──
+  if (ufo && ship.alive && invTmr <= 0) {
+    if (wrapDist(ufo.x, ufo.y, ship.x, ship.y) < ufo.r + 9) { killShip(); }
+  }
+
+  // ── Asteroids vs ship ──
+  if (ship.alive && invTmr <= 0) {
+    for (const a of asteroids) {
+      if (wrapDist(a.x, a.y, ship.x, ship.y) < a.r + 9) { killShip(); break; }
+    }
+  }
+
+  // ── Next level ──
+  if (asteroids.length === 0 && !ufo && state === 'playing') {
+    stopBeat(); stopUFOSound();
+    bullets = [];
+    upgradePod = null; upgradeActive = false; upgradeTmr = 0; _upgradeGunLeft = false;
+    upgradePodTmr = 900 + Math.random() * 600;
+    hyperUpgradePod = null; hyperUpgradeActive = false; hyperUpgradeTmr = 0;
+    hyperUpgradePodTmr = 1200 + Math.random() * 600;
+    levelBonus = Math.round(levelTimer / 60 * (5000 + 200 * (level - 1)));
+    score += levelBonus;
+    if (hiScore < score) hiScore = score;
+    burst(W/2, H/2, 25, 5, rndColor());
+    burst(W/2, H/2, 25, 5, rndColor());
+    playLevelClearFanfare();
+    state = 'levelcomplete';
+    // Wait for C1 fanfare to fully fade (~2.3 s at ×1.3 tempo) before starting next level intro
+    setTimeout(() => { if (state === 'levelcomplete') { level++; beatSpeed = 800; startLevelIntro(); } }, 2700);
+  }
+}
+
+function killShip() {
+  burst(ship.x, ship.y, 40, 6, '#6898D0');
+  spawnDeathRings(ship.x, ship.y, ship.vx, ship.vy);
+  SFX.die();
+  ship.alive = false;
+  upgradeActive = false; upgradeTmr = 0;
+  hyperUpgradeActive = false; hyperUpgradeTmr = 0;
+  if (ufo) { stopUFOSound(); ufo = null; }
+  lives--;
+  _lifeAnim = { index: lives, frames: 144, type: 'lose' };
+  stopBeat();
+  if (lives <= 0) {
+    // Always show GAME OVER for 3 s, then branch to name entry or title.
+    const goToName = qualifiesForBoard(score);
+    if (goToName) { nameInput = ''; nameRank = scoreRank(score); }
+    state = 'gameover'; _gameOverTime = Date.now();
+    setTimeout(() => {
+      if (state !== 'gameover') return;
+      if (goToName) { state = 'nameentry'; } else { state = 'title'; startAttractCycle(); }
+    }, 3000);
+  } else {
+    state = 'dead';
+    setTimeout(() => {
+      if (state !== 'dead') return;
+      ship.x=W/2; ship.y=H/2; ship.vx=0; ship.vy=0; ship.angle=0; ship.angleVel=0; ship.alive=true;
+      state='playing'; invTmr=200; fireTmr=0; heat=0;
+      startBeat();
+    }, 2800);
+  }
+}
+
+// ============================================================
+//  DRAW
+// ============================================================
+
+// Draw asteroid with wrap-around (appear on opposite edges)
+function drawAsteroid(a) {
+  // Render at all 9 toroidal positions; canvas clips anything off-screen.
+  // Eliminates wrap-edge "snap" glitches for any asteroid size or wrap-buffer width.
+  for (let ox = -1; ox <= 1; ox++) {
+    for (let oy = -1; oy <= 1; oy++) {
+      const px = a.x + ox * W, py = a.y + oy * H;
+      if (px > -80 && px < W+80 && py > -80 && py < H+80)
+        xfPoly(a.pts, px, py, a.rot, 1, a.color);
+    }
+  }
+}
+
+function drawShip(s) {
+  if (!s.alive) return;
+  if (state !== 'attract' && invTmr > 0 && Math.floor(invTmr/5)%2===0) return;
+  ctx.save();
+  ctx.translate(s.x, s.y);
+  ctx.scale(0.60, 0.60);
+  ctx.translate(-s.x, -s.y);
+  xfPoly(SHIP, s.x, s.y, s.angle);
+  if (hyperUpgradeActive && hyperUpgradeTmr > 0) {
+    // Cyan diamond — flash in last 3 seconds
+    const flash = hyperUpgradeTmr < 180 && Math.floor(hyperUpgradeTmr / 12) % 2 === 0;
+    if (!flash) xfPoly([[0,-9],[6,0],[0,9],[-6,0]], s.x, s.y, s.angle, 1, '#00FFFF');
+  } else if (upgradeActive && upgradeTmr > 0) {
+    // Yellow triangle — flash in last 3 seconds
+    const flash = upgradeTmr < 180 && Math.floor(upgradeTmr / 12) % 2 === 0;
+    if (!flash) xfPoly([[0,-8],[5,5],[-5,5]], s.x, s.y, s.angle, 1, ORG);
+  }
+  if (s.thrusting && Math.random()>.25) {
+    const fl = FLAME(Math.random()*10).map(([px,py]) => {
+      const [rx,ry] = rot(px,py,s.angle);
+      return [s.x+rx, s.y+ry];
+    });
+    ctx.beginPath();
+    ctx.moveTo(fl[0][0],fl[0][1]);
+    fl.slice(1).forEach(([x,y])=>ctx.lineTo(x,y));
+    ctx.strokeStyle = ORG; ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// Alien geometry normalised from ALF.svg (viewBox 3628×1134, figure centre ~1799,640, scale 0.025)
+function drawAlien(u) {
+  const { x, y, color } = u;
+  const o = (pts) => pts.map(([dx, dy]) => [x + dx, y + dy]);
+  // Spiky star body
+  vPoly(o([
+    [-0.4,-9.1],[3.4,-8.4],[19.1,-11.4],[6.3,-1.3],[10.3,10.9],
+    [0.0,0.0],[-10.2,10.9],[-6.3,-1.3],[-19.1,-12.1],[-3.9,-8.1],
+  ]), true, 1, color);
+  // Eyes (filled triangles)
+  vPoly(o([[-9.4,-7.9],[-4.0,-4.8],[-7.2,-4.6]]), true, 1, color);
+  vPoly(o([[8.7,-8.0],[3.3,-4.8],[6.5,-4.7]]),     true, 1, color);
+  // Polyline helper (mouth, arms, antennae, foot)
+  function pl(pts) {
+    const mp = o(pts);
+    ctx.beginPath();
+    ctx.moveTo(mp[0][0], mp[0][1]);
+    mp.slice(1).forEach(([px, py]) => ctx.lineTo(px, py));
+    ctx.strokeStyle = color; ctx.lineWidth = 1.2; ctx.stroke();
+  }
+  pl([[-7.8,3.5],[0.0,0.0],[8.0,4.1]]);                       // mouth
+  pl([[-9.7,-4.2],[-16.1,1.7],[-6.3,-1.3]]);                  // left arm
+  pl([[9.6,-4.2],[15.7,0.8],[6.3,-1.3]]);                      // right arm
+  pl([[-8.6,-9.3],[-12.8,-14.1],[-9.5,-15.1],[-0.2,-9.1]]);   // left antenna
+  pl([[7.6,-9.3],[11.9,-14.1],[8.5,-15.1],[-0.7,-9.1]]);       // right antenna
+  pl([[-3.4,3.8],[0.2,7.6],[3.1,3.7]]);                        // foot
+}
+
+function drawUFO(u) {
+  if (u.type === 'alien') { drawAlien(u); return; }
+  const {x, y, big, color} = u;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(0.60, 0.60);
+  ctx.translate(-x, -y);
+  const sc = big ? 1 : 0.55;
+  const w  = 34 * sc,   // wing half-span
+        sw = 17 * sc,   // dome-shoulder half-width
+        sh =  5 * sc,   // shoulder height above hull rim
+        dh = 14 * sc,   // dome height above shoulder
+        bw = 24 * sc,   // belly half-span
+        bd =  8 * sc;   // belly depth below hull rim
+
+  // ── Upper body: flat wings angling up to smooth dome arc ─────────
+  // Hull rim is at y; shoulders at y-sh; dome peak at y-sh-dh
+  const hull = [[x - w, y], [x - sw, y - sh]];
+  for (let i = 0; i <= 14; i++) {
+    const a = Math.PI * (1 - i / 14);          // π → 0 (left shoulder → peak → right shoulder)
+    hull.push([x + Math.cos(a) * sw, (y - sh) - Math.sin(a) * dh]);
+  }
+  hull.push([x + sw, y - sh], [x + w, y]);
+  vPoly(hull, true, 1, color);
+
+  // ── Belly: smooth downward arc below hull rim ─────────────────────
+  const belly = [];
+  for (let i = 0; i <= 12; i++) {
+    const t = i / 12;
+    belly.push([x - bw + 2 * bw * t, y + Math.sin(t * Math.PI) * bd]);
+  }
+  vPoly(belly, false, 0.85, color);
+
+  // ── Three dome panel stripes ──────────────────────────────────────
+  // Positioned ~22% up into the dome, matching SVG panel line placement
+  const psy = y - sh - dh * 0.22;
+  const sl  = sw * 0.22;   // stripe half-length ≈ 3.7
+  const gap = sw * 0.60;   // centre-to-centre spacing ≈ 10.2
+  for (let i = -1; i <= 1; i++) {
+    vLine(x + i * gap - sl, psy, x + i * gap + sl, psy, 0.7, color);
+  }
+  ctx.restore();
+}
+
+function drawUpgradePod(u) {
+  const s = 0.13; // 200 * 0.13 → icon ~16px wide (−20%)
+  ctx.save();
+  ctx.translate(u.x, u.y);
+  ctx.rotate(u.rot);
+  ctx.strokeStyle = ORG;
+  ctx.lineWidth = 1.5;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  // Outer shield polygon
+  ctx.beginPath();
+  [[162.4,162],[99,183.7],[37.7,161.2],[37.7,40.8],[162.4,41.6]].forEach(([px, py], i) => {
+    const tx = (px - 100) * s, ty = (py - 100) * s;
+    if (i === 0) ctx.moveTo(tx, ty); else ctx.lineTo(tx, ty);
+  });
+  ctx.closePath();
+  ctx.stroke();
+  // Inner 2×2 grid lines
+  [[83.2,69,83.2,140.7],[63.6,67.1,135.3,67.1],[63.6,139.5,135.3,139.5],[115,69,115,140.7]].forEach(([x1,y1,x2,y2]) => {
+    ctx.beginPath();
+    ctx.moveTo((x1-100)*s, (y1-100)*s);
+    ctx.lineTo((x2-100)*s, (y2-100)*s);
+    ctx.stroke();
+  });
+  ctx.restore();
+}
+
+function drawHyperUpgradePod(u) {
+  const s = 0.13;
+  ctx.save();
+  ctx.translate(u.x, u.y);
+  ctx.rotate(u.rot);
+  ctx.strokeStyle = '#00FFFF';
+  ctx.lineWidth = 1.5;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  // Same outer shield polygon
+  ctx.beginPath();
+  [[162.4,162],[99,183.7],[37.7,161.2],[37.7,40.8],[162.4,41.6]].forEach(([px, py], i) => {
+    const tx = (px - 100) * s, ty = (py - 100) * s;
+    if (i === 0) ctx.moveTo(tx, ty); else ctx.lineTo(tx, ty);
+  });
+  ctx.closePath();
+  ctx.stroke();
+  // Inner: two diagonal lines + two horizontal bars
+  [[83.2,69,97.4,140.2],[63.6,67.1,135.3,67.1],[63.6,139.5,135.3,139.5],[115,69,102.9,141.4]].forEach(([x1,y1,x2,y2]) => {
+    ctx.beginPath();
+    ctx.moveTo((x1-100)*s, (y1-100)*s);
+    ctx.lineTo((x2-100)*s, (y2-100)*s);
+    ctx.stroke();
+  });
+  ctx.restore();
+}
+
+function drawPopups() {
+  popups.forEach(p => {
+    ctx.globalAlpha = Math.min(1, p.life * 1.5);
+    drawArcadeText(p.text, p.x, p.y, 16, 'center', p.color || '#ff00ff');
+  });
+  ctx.globalAlpha = 1;
+}
+function drawParticles() {
+  ctx.lineWidth = 1.2;
+  particles.forEach(p => {
+    const len = p.len * p.life;
+    ctx.globalAlpha = p.life;
+    ctx.strokeStyle = p.col || PC;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x - Math.cos(p.a)*len, p.y - Math.sin(p.a)*len);
+    ctx.stroke();
+  });
+  ctx.globalAlpha = 1;
+}
+
+function drawHUD() {
+  // Score
+  vText(String(score).padStart(6,'0'), 14, 21, 17, 'left');
+  // Hi score label + value
+  vText('HI', W/2-32, 14, 8, 'right', 0.55);
+  vText(String(hiScore).padStart(6,'0'), W/2+32, 14, 14, 'left');
+  // Level + hyperspace counter
+  vText('LEV '+level, W-13, 21, 11, 'right');
+  vText('HYP  '+hypLeft, W-13, 40, 9, 'right', 0.6);
+  // Lives — tiny ship icons (with blink animation for gained/lost life)
+  if (_lifeAnim) _lifeAnim.frames--;
+  const blinkOn = _lifeAnim ? Math.floor(_lifeAnim.frames / 24) % 2 === 0 : false;
+  const showCount = _lifeAnim && _lifeAnim.type === 'lose' ? lives + 1 : lives;
+  for (let i = 0; i < showCount; i++) {
+    const lx = 16+i*19, ly = 45, sc=0.42;
+    const isAnimated = _lifeAnim && i === _lifeAnim.index;
+    const alpha = isAnimated ? (blinkOn ? 0.85 : 0.0) : 0.85;
+    if (alpha > 0) xfPoly(SHIP.map(([px,py])=>[px*sc, py*sc]), lx, ly, 0, alpha);
+  }
+  if (_lifeAnim && _lifeAnim.frames <= 0) _lifeAnim = null;
+  // Cannon heat gauge
+  const gw=144, gh=4, gx=W/2-48, gy=H-15;
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  ctx.fillStyle='rgba(255,255,255,0.14)';
+  ctx.fillRect(gx, gy, gw, gh);
+  if (heat > 0.005) {
+    const grad=ctx.createLinearGradient(gx, 0, gx+gw, 0);
+    grad.addColorStop(0,   '#3878A8');
+    grad.addColorStop(0.5, '#7840BE');
+    grad.addColorStop(1,   '#E840E8');
+    ctx.fillStyle=grad;
+    ctx.fillRect(gx, gy, gw*heat, gh);
+  }
+  // Tick marks at 0, 25, 50, 75, 100% — above and below bar
+  ctx.globalAlpha = 0.5;
+  ctx.strokeStyle = '#FF00FF';
+  ctx.lineWidth = 1;
+  [0, 0.25, 0.5, 0.75, 1].forEach(t => {
+    const tx = gx + t * gw;
+    ctx.beginPath(); ctx.moveTo(tx, gy + gh + 1); ctx.lineTo(tx, gy + gh + 3); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(tx, gy - 1);       ctx.lineTo(tx, gy - 3);       ctx.stroke();
+  });
+  ctx.restore();
+  vText('CANNON', gx-4, gy+gh/2, 6, 'right');
+  // Time bonus countdown — bottom right
+  const bonusLeft = Math.round(Math.ceil(levelTimer) / 60 * (5000 + 200 * (level - 1)));
+  if (bonusLeft > 0) {
+    const bonusPulse = bonusLeft < 1000
+      ? 0.35 + 0.65 * Math.abs(Math.sin(ticker * 0.18))  // fast urgent pulse
+      : bonusLeft < 2500
+        ? 0.5 + 0.3 * Math.abs(Math.sin(ticker * 0.08))  // slow gentle pulse
+        : 0.7;
+    vText('BONUS  ' + String(bonusLeft).padStart(5,'0'), W/2, 32, 14, 'center', bonusPulse);
+  }
+}
+
+function endSplash() {
+  if (state !== 'splash') return;
+  state = 'title';
+  startAttractCycle();
+}
+function drawSplash() {
+  // Build randomised stroke list once (Fisher-Yates shuffle for random reveal order)
+  if (!_splashStrokes) {
+    const raw = arcadeTextGetStrokes('ASTER*IDS', W/2, H/2 - 55, 113, 'center');
+    for (let i = raw.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [raw[i], raw[j]] = [raw[j], raw[i]];
+    }
+    _splashStrokes = raw;
+  }
+  _splashAnimFrame++;
+  // ~30 frames (≈ 0.5 s) for full reveal, centre strokes first
+  const count = Math.min(_splashStrokes.length,
+                         Math.floor((_splashAnimFrame / 120) * _splashStrokes.length));
+  ctx.strokeStyle = '#FF00FF';
+  ctx.lineWidth = 1; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (let i = 0; i < count; i++) {
+    const { pts } = _splashStrokes[i];
+    ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let j = 1; j < pts.length; j++) ctx.lineTo(pts[j][0], pts[j][1]);
+    ctx.stroke();
+  }
+  vText('DEVELOPED MARCH 2026 BY MPGFI ASSISTED BY CLAUDE', W/2, H/2 + 40, 10, 'center', 0.65);
+  vText('MUSIC BY CLAUDE DEBUSSY',                          W/2, H/2 + 54, 10, 'center', 0.65);
+  vText('NO COPYRIGHT \u2014 FREE DISTRIBUTION \u2014 ENJOY!',  W/2, H/2 + 68, 10, 'center', 0.65);
+  if (Math.floor(ticker/32)%2===0)
+    vText('PRESS ANY KEY', W/2, H/2 + 86, 14, 'center');
+}
+function drawTitleRocks() {
+  ctx.globalAlpha = 0.5;
+  titleRocks.forEach(drawAsteroid);
+  ctx.globalAlpha = 1;
+}
+
+function drawTitle() {
+  drawTitleRocks();
+  // Smooth palette wave creeping left→right through the letterforms (~10 s per cycle)
+  drawArcadeTextWave('ASTER*IDS', W/2, H/2-130, 72, 'center', (ticker / 300) % 1);
+  if (Math.floor(ticker/32)%2===0)
+    vText('PRESS SPACE TO START', W/2, H/2-65, 17);
+  vText('CONTROLS', W/2, H/2-34, 12, 'center', 1, '#44ff88');
+  vText('USE CURSOR KEYS OR WASD:', W/2, H/2-16, 10, 'center', 1, '#44ff88');
+  vText('LEFT and RIGHT \u2014 ROTATE', W/2, H/2-1,  10, 'center', 1, '#44ff88');
+  vText('UP \u2014 THRUST',            W/2, H/2+14, 10, 'center', 1, '#44ff88');
+  vText('DOWN \u2014 HYPERSPACE',      W/2, H/2+29, 10, 'center', 1, '#44ff88');
+  vText('SPACE \u2014 FIRE',           W/2, H/2+44, 10, 'center', 1, '#44ff88');
+  vText('ESC \u2014 EXIT TO TITLE',    W/2, H/2+59, 10, 'center', 1, '#44ff88');
+  vText('TAB \u2014 PAUSE',            W/2, H/2+74, 10, 'center', 1, '#44ff88');
+  // Alternating local / global high score every 2 s (120 frames)
+  const showGlobal = SUPABASE_URL && Math.floor(ticker / 120) % 2 === 1;
+  if (showGlobal) {
+    vText('GLOBAL HIGH SCORE', W/2, H/2+96, 14, 'center', 1, '#FF00FF');
+    if (globalScores.length > 0)
+      vText(globalScores[0].score + ' \u2014 ' + globalScores[0].name, W/2, H/2+120, 18, 'center', 1, '#FF00FF');
+    else
+      vText('NO DATA YET', W/2, H/2+120, 14, 'center', 1, '#FF00FF');
+  } else if (hiScore > 0) {
+    vText('LOCAL HIGH SCORE', W/2, H/2+96, 14, 'center', 1, '#FF00FF');
+    vText(hiScore + ' \u2014 ' + scores[0].name, W/2, H/2+120, 18, 'center', 1, '#FF00FF');
+  }
+}
+
+let _resetFlash   = 0;      // frames to show confirmation text after reset
+let _gameOverTime = 0;      // timestamp of gameover entry — blocks key-repeat skipping
+let _resetConfirm = false;  // waiting for Y/N on reset prompt
+
+function drawHiScores() {
+  drawTitleRocks();
+  vText('LOCAL HIGH SCORES', W/2, 130, 32);
+  scores.forEach((e, i) => {
+    const y = 184 + i * 30;
+    let col;
+    if (e.score === 0) {
+      col = 'rgba(255,255,255,0.5)';
+    } else {
+      const phase = ticker * 0.07 + i * (PALETTE.length / scores.length);
+      col = PALETTE[Math.floor(phase) % PALETTE.length];
+    }
+    vText(String(i+1).padStart(2,' ')+'.', W/2-190, y, 16, 'left', 1, col);
+    vText(e.name,                          W/2-110, y, 16, 'left', 1, col);
+    vText(String(e.score).padStart(8,'0'), W/2+200, y, 16, 'right',1, col);
+  });
+  if (Math.floor(ticker/30)%2===0) vText('PRESS SPACE TO PLAY', W/2, 518, 12);
+  if (_resetFlash > 0) {
+    _resetFlash--;
+    vText('SCOREBOARD CLEARED', W/2, H/2, 19, 'center', 1, '#ff4444');
+  } else if (_resetConfirm) {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0, 0, W, H);
+    vText('RESET LOCAL SCORES?', W/2, H/2 - 28, 29, 'center', 1, '#ff4444');
+    vText('Y  /  N', W/2, H/2 + 34, 22, 'center', 0.55);
+  } else {
+    vText('R \u2014 RESET LOCAL SCOREBOARD', W/2, H-10, 9, 'center', 1, 'rgba(255,80,80,0.55)');
+  }
+}
+
+function drawGlobalScores() {
+  drawTitleRocks();
+  vText('GLOBAL HIGH SCORES', W/2, 130, 32);
+  if (globalScoresState === 'offline') {
+    vText('NOT CONFIGURED', W/2, H/2 - 20, 19);
+    vText('SET SUPABASE_URL AND KEY IN SOURCE', W/2, H/2 + 16, 10);
+  } else if (globalScoresState === 'loading') {
+    vText('LOADING...', W/2, H/2, 16);
+  } else if (globalScoresState === 'error') {
+    vText('COULD NOT REACH SERVER', W/2, H/2, 16);
+  } else {
+    globalScores.forEach((e, i) => {
+      const y = 184 + i * 30;
+      const phase = ticker * 0.07 + i * (PALETTE.length / 10);
+      const col = PALETTE[Math.floor(phase) % PALETTE.length];
+      vText(String(i+1).padStart(2,' ')+'.', W/2-190, y, 16, 'left', 1, col);
+      vText(e.name,                          W/2-110, y, 16, 'left', 1, col);
+      vText(String(e.score).padStart(8,'0'), W/2+200, y, 16, 'right',1, col);
+    });
+  }
+  if (Math.floor(ticker/30)%2===0) vText('PRESS SPACE TO PLAY', W/2, 518, 12);
+}
+
+function drawNameEntry() {
+  vText('NEW HIGH SCORE', W/2, 50, 27, 'center', 1, PALETTE[4]);
+  vText('ENTER YOUR INITIALS', W/2, 86, 12, 'center', 0.6);
+  // 3-char slots with blinking cursor
+  const cur = nameInput.length;
+  const chars = (nameInput + '   ').slice(0,3).split('').map((c,i) =>
+    (i===cur && Math.floor(ticker/16)%2===0) ? '_' : c
+  ).join('  ');
+  vText(chars, W/2, 136, 46);
+  if (nameInput.length===3 && Math.floor(ticker/26)%2===0)
+    vText('PRESS ENTER TO CONFIRM', W/2, 182, 11);
+  // Preview scoreboard with new entry highlighted
+  vLine(W/2-210, 200, W/2+210, 200, 0.2);
+  const board = previewBoard((nameInput+'AAA').slice(0,3), score);
+  board.forEach((e, i) => {
+    const y = 218 + i*33;
+    const isNew = i===nameRank && e.score===score;
+    const col = isNew ? (Math.floor(ticker/14)%2===0 ? PALETTE[4] : PALETTE[0]) : null;
+    const nm  = isNew ? (nameInput+'___').slice(0,3) : e.name;
+    vText(String(i+1)+'.', W/2-185, y, 13, 'left', 1, col);
+    vText(nm,              W/2-115, y, 13, 'left', 1, col);
+    vText(String(e.score).padStart(7,'0'), W/2+185, y, 13, 'right',1, col);
+  });
+}
+
+function drawLevelComplete() {
+  drawParticles();
+  vText('LEVEL ' + level + ' CLEARED', W/2, H/2 - 48, 37, 'center', 1, PALETTE[4]);
+
+  if (levelBonus > 0)
+    vText('TIME BONUS  +' + levelBonus, W/2, H/2 - 11, 16, 'center', 0.8, '#ff00ff');
+  else
+    vText('NO TIME BONUS', W/2, H/2 - 11, 16, 'center', 0.5, '#888888');
+  vText('SCORE  ' + String(score).padStart(6,'0'), W/2, H/2 + 37, 19);
+}
+
+function drawGameOver() {
+  const newHi = score > 0 && score >= hiScore;
+  drawArcadeText('GAME OVER', W/2, H/2-60, 51, 'center', '#FF00FF');
+  vText('SCORE  '+score, W/2, H/2, 21);
+  if (newHi && Math.floor(ticker/28)%2===0)
+    vText('NEW HIGH SCORE!', W/2, H/2+49, 16);
+  const sub = nameRank >= 0 ? 'HALL OF FAME — ENTER YOUR NAME' : 'RETURNING TO TITLE...';
+  vText(sub, W/2, newHi ? H/2+93 : H/2+49, 11, 'center', 0.5);
+}
+
+// ============================================================
+//  QUIT PROMPT
+// ============================================================
+let _quitFrom = null;   // state we came from when Escape was pressed
+let _pauseFrom = null;  // state we came from when TAB was pressed
+
+function drawPaused() {
+  // Draw the frozen game scene underneath
+  asteroids.forEach(drawAsteroid);
+  if (ufo) drawUFO(ufo);
+  bullets.forEach(b => { ctx.globalAlpha = b.own==='ufo' ? 1 : 0.2+b.life/40*0.8; vAsterisk(b.x, b.y, 2, b.own === 'ufo' ? '#ff00ff' : (b.col || '#3CC8A4')); }); ctx.globalAlpha=1;
+  drawParticles();
+  drawShip(ship);
+  drawHUD();
+  // Dark overlay
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0, 0, W, H);
+  // Prompt
+  vText('PAUSED', W/2, H/2 - 14, 42, 'center', 1, PALETTE[0]);
+  vText('PRESS ANY KEY TO CONTINUE', W/2, H/2 + 34, 11, 'center', 0.55);
+}
+
+function drawQuitPrompt() {
+  // Draw the frozen game scene underneath
+  asteroids.forEach(drawAsteroid);
+  if (ufo) drawUFO(ufo);
+  bullets.forEach(b => { ctx.globalAlpha = b.own==='ufo' ? 1 : 0.2+b.life/40*0.8; vAsterisk(b.x, b.y, 2, b.own === 'ufo' ? '#ff00ff' : (b.col || '#3CC8A4')); }); ctx.globalAlpha=1;
+  drawParticles();
+  drawShip(ship);
+  drawHUD();
+  // Dark overlay
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0, 0, W, H);
+  // Prompt
+  vText('QUIT?', W/2, H/2 - 28, 42, 'center', 1, PALETTE[0]);
+  vText('Y  /  N', W/2, H/2 + 34, 22, 'center', 0.55);
+}
+
+// ============================================================
+//  MAIN LOOP
+// ============================================================
+let last = 0;
+let starAngle = 0;
+function loop(ts) {
+  if (ts - last >= 15.5) {
+    starAngle += Math.min(ts - last, 50) / 1000 * Math.PI / 180;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0,0,W,H);
+    drawStars();
+
+    if (state === 'splash') {
+      drawSplash();
+    } else if (state === 'title') {
+      drawTitle();
+    } else if (state === 'hiscores') {
+      drawHiScores();
+    } else if (state === 'globalscores') {
+      drawGlobalScores();
+    } else if (state === 'attract') {
+      asteroids.forEach(drawAsteroid);
+      if (demoShip) drawShip(demoShip);
+      bullets.forEach(b => { ctx.globalAlpha = 0.2+b.life/40*0.8; vAsterisk(b.x,b.y,2,b.col||'#3CC8A4'); }); ctx.globalAlpha=1;
+      drawParticles();
+      vText('DEMO', W/2, H/2, 42, 'center', 1, 'rgba(255,255,255,0.14)');
+      if (Math.floor(ticker/30)%2===0) vText('PRESS SPACE TO PLAY', W/2, H-28, 12);
+    } else if (state === 'nameentry') {
+      drawNameEntry();
+    } else if (state === 'levelcomplete') {
+      drawLevelComplete();
+    } else if (state === 'levelstart') {
+      asteroids.forEach(drawAsteroid);
+      drawHUD();
+      vText('LEVEL ' + level,  W/2, H/2 - 47, 42, 'center', 1, PALETTE[0]);
+      vText('READY PLAYER 1',  W/2, H/2 -  6, 19, 'center', 1, PALETTE[4]);
+      if (levelReady && Math.floor(ticker/22)%2===0)
+        vText('PRESS ANY KEY', W/2, H/2 + 41, 14);
+    } else if (state === 'gameover') {
+      drawParticles();
+      drawGameOver();
+    } else if (state === 'paused') {
+      drawPaused();
+    } else if (state === 'quitprompt') {
+      drawQuitPrompt();
+    } else {
+      // playing | dead
+      asteroids.forEach(drawAsteroid);
+      drawRings();
+      if (ufo) {
+        ufo.trail.forEach((t, i) => {
+          ctx.globalAlpha = (i + 1) * 0.05;
+          drawUFO({ ...ufo, x: t.x, y: t.y });
+        });
+        ctx.globalAlpha = 1;
+        drawUFO(ufo);
+      }
+      bullets.forEach(b => {
+        ctx.globalAlpha = b.own==='ufo' ? 1 : 0.2+b.life/40*0.8;
+        vAsterisk(b.x, b.y, 2, b.own==='ufo' ? '#ff00ff' : (b.col||'#3CC8A4'));
+      }); ctx.globalAlpha=1;
+      if (upgradePod) drawUpgradePod(upgradePod);
+      if (hyperUpgradePod) drawHyperUpgradePod(hyperUpgradePod);
+      drawParticles();
+      drawPopups();
+      drawShip(ship);
+      drawHUD();
+      if (state === 'dead' && Math.floor(ticker/22)%2===0)
+        vText('SHIP DESTROYED', W/2, H/2, 22);
+    }
+
+    vText('ASTER*IDS v' + VERSION, 8, H - 8, 10, 'left', 0.20);
+
+    update();
+    last = ts;
+  }
+  requestAnimationFrame(loop);
+}
+
+// ============================================================
+//  INPUT
+// ============================================================
+const WASD_MAP = { w:'ArrowUp', a:'ArrowLeft', s:'ArrowDown', d:'ArrowRight' };
+window.addEventListener('keydown', e => {
+  if (WASD_MAP[e.key]) keys[WASD_MAP[e.key]] = true;
+  keys[e.key] = true;
+  if ([' ','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Escape','Tab'].includes(e.key)) e.preventDefault();
+  // Wake the AudioContext on first user gesture; the _musicTick retry loop
+  // will pick it up and start scheduling notes on its next iteration (~200ms).
+  if (ac && ac.state === 'suspended') ac.resume();
+
+  // Splash: any key skips to title (and wakes AudioContext)
+  if (state === 'splash') { endSplash(); return; }
+
+  // Name entry
+  if (state === 'nameentry') {
+    if (/^[A-Za-z]$/.test(e.key) && nameInput.length < 3) {
+      nameInput += e.key.toUpperCase();
+    } else if (e.key === 'Backspace') {
+      nameInput = nameInput.slice(0, -1);
+    } else if ((e.key === 'Enter' || e.key === ' ') && nameInput.length === 3) {
+      insertScore(nameInput, score);
+      submitGlobalScore(nameInput, score);
+      if (score > hiScore) hiScore = score;
+      nameRank = -1;          // clear pending flag before showing GAME OVER
+      state = 'gameover';
+      setTimeout(() => { if (state==='gameover') { state='title'; startAttractCycle(); } }, 3000);
+    }
+    return;
+  }
+
+  if (state === 'levelstart' && levelReady) { beginPlay(); return; }
+
+  // Any key starts game from attract/hiscores/globalscores screens
+  if (state === 'hiscores' || state === 'globalscores' || state === 'attract') {
+    if (_resetConfirm) {
+      if (e.key === 'y' || e.key === 'Y') {
+        scores = Array.from({length: 10}, () => ({name: 'AAA', score: 0}));
+        hiScore = 0; saveScores(); _resetConfirm = false; _resetFlash = 120;
+        attractTmr = setTimeout(() => {
+          if (state !== 'hiscores') return;
+          if (SUPABASE_URL) { state = 'globalscores'; fetchGlobalScores();
+            attractTmr = setTimeout(() => { if (state === 'globalscores') startAttractPlay(); }, 5000);
+          } else { startAttractPlay(); }
+        }, 5000);
+      } else if (e.key === 'n' || e.key === 'N' || e.key === 'Escape') {
+        _resetConfirm = false;
+        attractTmr = setTimeout(() => {
+          if (state !== 'hiscores') return;
+          if (SUPABASE_URL) { state = 'globalscores'; fetchGlobalScores();
+            attractTmr = setTimeout(() => { if (state === 'globalscores') startAttractPlay(); }, 5000);
+          } else { startAttractPlay(); }
+        }, 5000);
+      }
+      return;
+    }
+    if (e.key === ' ') { clearTimeout(attractTmr); initGame(); return; }
+    if ((e.key === 'r' || e.key === 'R') && state === 'hiscores' && _resetFlash <= 0) {
+      clearTimeout(attractTmr); _resetConfirm = true; return;
+    }
+    return;
+  }
+
+  // TAB during gameplay → pause (any key resumes)
+  if (e.key === 'Tab') {
+    if (state === 'playing') {
+      _pauseFrom = state;
+      stopBeat(); stopUFOSound();
+      state = 'paused';
+      return;
+    }
+    if (state === 'paused') {
+      state = _pauseFrom;
+      startBeat();
+      if (ufo) { if (ufo.type === 'alien') startAlienSound(); else startUFOSound(ufo.big); }
+      return;
+    }
+  }
+
+  // Any key resumes from paused
+  if (state === 'paused') {
+    state = _pauseFrom;
+    startBeat();
+    if (ufo) startUFOSound(ufo.big);
+    return;
+  }
+
+  // Escape during a game session → pause and ask
+  if (e.key === 'Escape') {
+    const inGame = state === 'playing' || state === 'dead' ||
+                   state === 'levelstart' || state === 'levelcomplete';
+    if (inGame) {
+      _quitFrom = state;
+      stopBeat(); stopUFOSound();
+      state = 'quitprompt';
+      return;
+    }
+  }
+
+  // Quit-prompt Y / N
+  if (state === 'quitprompt') {
+    if (e.key === 'y' || e.key === 'Y') {
+      // Abandon game — back to title
+      stopBeat(); stopUFOSound();
+      asteroids = []; bullets = []; particles = []; popups = []; ufo = null; upgradePod = null;
+      state = 'title';
+      startAttractCycle();
+    } else if (e.key === 'n' || e.key === 'N' || e.key === 'Escape') {
+      // Resume
+      state = _quitFrom;
+      if (state === 'playing') startBeat();
+      else if (state === 'dead') startBeat();
+      if (ufo) { if (ufo.type === 'alien') startAlienSound(); else startUFOSound(ufo.big); }
+    }
+    return;
+  }
+
+
+  if (e.key === ' ') {
+    if (state === 'title')         { clearTimeout(attractTmr); initGame(); }
+    else if (state === 'hiscores') { clearTimeout(attractTmr); initGame(); }
+    else if (state === 'gameover' && Date.now() - _gameOverTime > 1000) {
+      if (nameRank >= 0) { state = 'nameentry'; }
+      else { state = 'hiscores'; }
+    }
+  }
+});
+window.addEventListener('keyup', e => { if (WASD_MAP[e.key]) keys[WASD_MAP[e.key]] = false; keys[e.key] = false; });
+
+
+// ============================================================
+//  BOOT
+// ============================================================
+// Starfield — spread across circumscribed circle so corners stay covered at any rotation angle
+const _STAR_R = Math.hypot(W, H) / 2;
+const STARS = Array.from({length: 320}, () => ({
+  x: W/2 + (Math.random() - 0.5) * _STAR_R * 2,
+  y: H/2 + (Math.random() - 0.5) * _STAR_R * 2,
+  r: Math.random() < 0.65 ? 0.6 : 1.1,
+  phase: Math.random() * Math.PI * 2,
+  speed: 0.018 + Math.random() * 0.045,
+}));
+function drawStars() {
+  ctx.save();
+  ctx.translate(W/2, H/2);
+  ctx.rotate(starAngle);
+  ctx.translate(-W/2, -H/2);
+  STARS.forEach(s => {
+    s.phase += s.speed;
+    const alpha = Math.min(1, 0.30 + Math.abs(Math.sin(s.phase)) * 1.10);
+    ctx.fillStyle = `rgba(255,255,255,${alpha.toFixed(2)})`;
+    ctx.fillRect(s.x - s.r/2, s.y - s.r/2, s.r, s.r);
+  });
+  ctx.restore();
+}
+
+// Seed title screen asteroids (half speed)
+for (let i=0;i<7;i++) {
+  const a = mkAsteroid(Math.random()*W, Math.random()*H, 1+Math.floor(Math.random()*3));
+  a.vx *= 0.5; a.vy *= 0.5;
+  titleRocks.push(a);
+}
+
+fetchGlobalScores();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
