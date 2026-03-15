@@ -72,7 +72,7 @@
 // ============================================================
 
 const W = 983, H = 609;
-const VERSION = '3.16';
+const VERSION = '3.22';
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const dpr = window.devicePixelRatio || 1;
@@ -2410,7 +2410,7 @@ function update() {
   // ── UPGRADE POD ──
   if (!upgradePod) {
     upgradePodTmr--;
-    if (upgradePodTmr <= 0 && asteroids.length > 0) {
+    if (upgradePodTmr <= 0 && asteroids.length > 0 && !hyperUpgradePod) {
       // With ≤4 rocks the pod rarely shows — only 10% chance of spawning
       if (asteroids.length > 4 || Math.random() < 0.10) {
         spawnUpgradePod();
@@ -2486,7 +2486,7 @@ function update() {
   // ── HYPER UPGRADE POD ──
   if (!hyperUpgradePod) {
     hyperUpgradePodTmr--;
-    if (hyperUpgradePodTmr <= 0 && asteroids.length > 0 && level >= 4) {
+    if (hyperUpgradePodTmr <= 0 && asteroids.length > 0 && level >= 4 && !upgradePod) {
       spawnHyperUpgradePod();
       hyperUpgradePodTmr = 1800 + Math.random() * 1200;
     }
