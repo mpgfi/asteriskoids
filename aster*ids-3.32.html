@@ -72,7 +72,7 @@
 // ============================================================
 
 const W = 983, H = 609;
-const VERSION = '3.31';
+const VERSION = '3.32';
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const dpr = window.devicePixelRatio || 1;
@@ -498,8 +498,8 @@ function stopUFOSound() {
 
 // ── Alien bassline: 8 random notes from Clair de Lune's Db-major harmonic pool ──
 // Db3 Eb3 F3 Gb3 Ab3 Bb3 B3 Db4 Eb4 F4 Gb4 Ab4  (+1 octave)
-const _ALIEN_SCALE = [138.59, 155.56, 174.61, 185.00, 207.65, 233.08, 246.94,
-                      277.18, 311.13, 349.23, 369.99, 415.30];
+const _ALIEN_SCALE = [34.65, 38.89, 43.65, 46.25, 51.91, 58.27, 61.74,
+                      69.30, 77.78, 87.31, 92.50, 103.83];
 let _alienSoundTmr = null;
 
 function stopAlienSound() {
@@ -2597,7 +2597,7 @@ function update() {
         burst(pod.x, pod.y, 24, 4, '#FFFF00');
         spawnRings(pod.x, pod.y, pod.r * 2, '#FFFF00');
         SFX.medBoom();
-        upgradeActive = true; upgradeTmr = 360; _upgradeGunLeft = false;
+        upgradeActive = true; upgradeTmr = 360; _upgradeGunLeft = false; heat = 0;
         upgradePod = null;
         b.life = 0;
       }
@@ -2611,7 +2611,7 @@ function update() {
         burst(pod.x, pod.y, 24, 4, '#00FFFF');
         spawnRings(pod.x, pod.y, pod.r * 2, '#00FFFF');
         SFX.medBoom();
-        hyperUpgradeActive = true; hyperUpgradeTmr = 600;
+        hyperUpgradeActive = true; hyperUpgradeTmr = 600; heat = 0;
         hyperUpgradePod = null;
         b.life = 0;
       }
@@ -2665,6 +2665,7 @@ function killShip() {
   ship.alive = false;
   upgradeActive = false; upgradeTmr = 0;
   hyperUpgradeActive = false; hyperUpgradeTmr = 0;
+  upgradePod = null; hyperUpgradePod = null;
   if (ufo) { stopUFOSound(); ufo = null; }
   lives--;
   _lifeAnim = { index: lives, frames: 144, type: 'lose' };
@@ -2711,7 +2712,7 @@ function drawShip(s) {
   if (state !== 'attract' && invTmr > 0 && Math.floor(invTmr/5)%2===0) return;
   ctx.save();
   ctx.translate(s.x, s.y);
-  ctx.scale(0.60, 0.60);
+  ctx.scale(0.75, 0.75);
   ctx.translate(-s.x, -s.y);
   xfPoly(SHIP, s.x, s.y, s.angle);
   if (hyperUpgradeActive && hyperUpgradeTmr > 0) {
@@ -2930,7 +2931,7 @@ function drawHUD() {
   ctx.restore();
   vText('CANNON', gx-4, gy+gh/2, 6, 'right');
   // Time bonus countdown — bottom right
-  const bonusLeft = Math.round(Math.ceil(levelTimer) / 60 * (5000 + 200 * (level - 1)));
+  const bonusLeft = Math.floor(levelTimer / 60 * (5000 + 200 * (level - 1)));
   if (bonusLeft > 0) {
     const bonusPulse = bonusLeft < 1000
       ? 0.35 + 0.65 * Math.abs(Math.sin(ticker * 0.18))  // fast urgent pulse
@@ -3315,6 +3316,25 @@ window.addEventListener('keydown', e => {
     startBeat();
     if (ufo) startUFOSound(ufo.big);
     return;
+  }
+
+  // ── DEV: Q key force-spawns an alien ──
+  if ((e.key === 'q' || e.key === 'Q') && state === 'playing') {
+    ufo = null; stopUFOSound(); stopAlienSound();
+    const side = Math.random() < 0.5 ? -30 : W + 30;
+    ufo = {
+      x: side, y: H / 2,
+      vx: side < 0 ? 2.0 : -2.0, vy: 0,
+      type: 'alien', big: false, r: 7,
+      fireTmr: 55,
+      sinePhase: Math.random() * Math.PI * 2,
+      color: '#ffffff',
+      trail: [],
+      erraticPhase:  Math.random() * Math.PI * 2,
+      erraticAmp:    1.6 + Math.random(),
+      dirChangeTmr:  20 + Math.floor(Math.random() * 30),
+    };
+    startAlienSound();
   }
 
   // Escape during a game session → pause and ask
