@@ -72,7 +72,7 @@
 // ============================================================
 
 const W = 983, H = 609;
-const VERSION = '3.22';
+const VERSION = '3.3';
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const dpr = window.devicePixelRatio || 1;
@@ -1856,7 +1856,7 @@ let ticker  = 0;          // frame counter for blinking text
 let ship, asteroids = [], bullets = [], particles = [], popups = [], rings = [], ufo, ufoSpawnTmr;
 let upgradePod = null, upgradePodTmr = 900 + Math.random() * 600;
 let upgradeActive = false, upgradeTmr = 0, _upgradeGunLeft = false;
-let hyperUpgradePod = null, hyperUpgradePodTmr = 1800 + Math.random() * 1200;
+let hyperUpgradePod = null, hyperUpgradePodTmr = 3600 + Math.random() * 2400;
 let hyperUpgradeActive = false, hyperUpgradeTmr = 0;
 let hypLeft = 3;   // hyperspace jumps remaining this level
 let heat = 0;   // cannon heat 0–1: builds while trigger held, cools on release
@@ -1883,7 +1883,7 @@ function mkAsteroid(x, y, size) {
     const r = R*(0.6 + Math.random()*0.75);
     return [Math.cos(a)*r, Math.sin(a)*r];
   });
-  const spd = ((0.5 + Math.random()*0.8) * (4-size) * 0.55 + 0.2) * 0.75 * 0.9 * Math.pow(0.95, level - 1);
+  const spd = Math.max(0.55, ((0.5 + Math.random()*0.8) * (4-size) * 0.55 + 0.2) * 0.75 * 0.9 * Math.pow(0.95, level - 1));
   const dir = Math.random()*Math.PI*2;
   return {
     x, y,
@@ -2046,7 +2046,7 @@ function initGame() {
   ufo = null; ufoSpawnTmr = 700 + Math.random() * 400;  // level 1 — no UFOs spawn anyway
   upgradePod = null; upgradePodTmr = 900 + Math.random() * 600;
   upgradeActive = false; upgradeTmr = 0; _upgradeGunLeft = false;
-  hyperUpgradePod = null; hyperUpgradePodTmr = 1800 + Math.random() * 1200;
+  hyperUpgradePod = null; hyperUpgradePodTmr = 3600 + Math.random() * 2400;
   hyperUpgradeActive = false; hyperUpgradeTmr = 0;
   score = 0; lives = 3; level = 1; extraAt = 10000; _lifeAnim = null;
   fireTmr = 0; invTmr = 150; heat = 0;
@@ -2055,7 +2055,7 @@ function initGame() {
 
 function spawnLevel() {
   const cx = W/2, cy = H/2;
-  for (let i = 0; i < 5+level; i++) {
+  for (let i = 0; i < 7+level; i++) {
     let x, y;
     do { x=Math.random()*W; y=Math.random()*H; }
     while (Math.hypot(x-cx,y-cy) < 128);
@@ -2293,7 +2293,7 @@ function update() {
     // heat < 0.5 → machine gun (~15/sec) | heat = 1.0 → 1 shot/sec
     const firing = !!(keys[' '] || keys['Space']) && _fireLock <= 0;
     if (firing) {
-      if (!upgradeActive && !hyperUpgradeActive) heat = Math.min(1, heat + 0.012);
+      heat = Math.min(1, heat + ((upgradeActive || hyperUpgradeActive) ? 0.0029 : 0.0096));
     } else {
       heat = Math.max(0, heat - 0.008);
     }
@@ -2398,7 +2398,8 @@ function update() {
       const aim = ufo.big
         ? Math.random() * Math.PI * 2
         : Math.atan2(ship.y - ufo.y, ship.x - ufo.x) + spread;
-      bullets.push({ x:ufo.x, y:ufo.y, vx:Math.cos(aim)*1.65, vy:Math.sin(aim)*1.65, life:70, own:'ufo' });
+      const bspd = 1.65 + level * 0.15;
+      bullets.push({ x:ufo.x, y:ufo.y, vx:Math.cos(aim)*bspd, vy:Math.sin(aim)*bspd, life:70, own:'ufo' });
       tone(ufo.big ? 1200 : 800, 'square', 0.06, 0.12);
       ufo.fireTmr = ufo.big ? 110 : ufo.type === 'alien' ? 55 : 65;
     }
@@ -2488,7 +2489,7 @@ function update() {
     hyperUpgradePodTmr--;
     if (hyperUpgradePodTmr <= 0 && asteroids.length > 0 && level >= 4 && !upgradePod) {
       spawnHyperUpgradePod();
-      hyperUpgradePodTmr = 1800 + Math.random() * 1200;
+      hyperUpgradePodTmr = 3600 + Math.random() * 2400;
     }
   } else {
     const pod = hyperUpgradePod;
@@ -2644,7 +2645,7 @@ function update() {
     upgradePod = null; upgradeActive = false; upgradeTmr = 0; _upgradeGunLeft = false;
     upgradePodTmr = 900 + Math.random() * 600;
     hyperUpgradePod = null; hyperUpgradeActive = false; hyperUpgradeTmr = 0;
-    hyperUpgradePodTmr = 1200 + Math.random() * 600;
+    hyperUpgradePodTmr = 2400 + Math.random() * 1200;
     levelBonus = Math.round(levelTimer / 60 * (5000 + 200 * (level - 1)));
     score += levelBonus;
     if (hiScore < score) hiScore = score;
