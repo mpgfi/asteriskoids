@@ -35,6 +35,14 @@
     border-radius: 6px;
   }
   #overlay { display: none; }
+  #glow {
+    position: absolute;
+    top: 0; left: 0;
+    width: 983px; height: 609px;
+    mix-blend-mode: screen;
+    pointer-events: none;
+    border-radius: 6px;
+  }
   #bezel-label {
     text-align: center;
     margin-top: 7px;
@@ -60,10 +68,12 @@
 <div id="bezel">
   <div id="screen">
     <canvas id="game"></canvas>
+    <canvas id="glow"></canvas>
     <div id="overlay"></div>
   </div>
   <div id="bezel-label"><a href="mailto:magnus@mpgfi.se" style="opacity:0.3"><svg height="15" viewBox="0 0 200 217.5" xmlns="http://www.w3.org/2000/svg"><polygon points="1.1 1 199.4 1 199.4 216.4 1.1 216.4 1.1 1" fill="#515151"/><path d="M57.7,38.2c8.3-6.5,17.8-11.2,28.5-11.3,12,0,20.4,4.3,25.6,13.2,4.3-3.5,8.5-6.5,13.2-9,5.2-2.7,10.9-4.1,17.2-4.2,8.2,0,15.1,2.6,20.6,7.9,5.5,5.3,8.3,13,8.5,23.1v73.5h-28.6v-64.2c0-2.7,0-5.3-.3-8-.2-2.5-1-4.6-2.4-6.3-1.2-1.5-3.4-2.4-6.8-2.5-8,.2-14.3,4.7-18.8,11.1v70h-28.3s0-64.2,0-64.2c.2-7.6.5-16.6-9.5-16.8-8,.2-14.3,4.7-18.8,11.1v70h-28.3V29h28.3v9.2h0Z" fill="#999"/><polygon points="57.7 131.4 86.1 131.4 86.1 159.7 57.7 159.7 57.7 131.4" fill="#999"/><polygon points="114.4 131.4 142.7 131.4 142.7 159.7 114.4 159.7 114.4 131.4" fill="#999"/><polygon points="29.4 159.7 57.7 159.7 57.7 188 29.4 188 29.4 159.7" fill="#999"/><polygon points="86.1 159.7 114.4 159.7 114.4 188 86.1 188 86.1 159.7" fill="#999"/><polygon points="142.7 159.7 171.1 159.7 171.1 188 142.7 188 142.7 159.7" fill="#999"/></svg></a></div>
 </div>
+
 
 <script>
 // ============================================================
@@ -73,7 +83,7 @@
 // ============================================================
 
 const W = 983, H = 609;
-const VERSION = '3.51';
+const VERSION = '3.53';
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const dpr = window.devicePixelRatio || 1;
@@ -81,6 +91,20 @@ canvas.width  = W * dpr;
 canvas.height = H * dpr;
 canvas.style.width  = W + 'px';
 canvas.style.height = H + 'px';
+
+// Bloom glow overlay canvas
+const glowCanvas = document.getElementById('glow');
+const glowCtx = glowCanvas.getContext('2d');
+glowCanvas.width  = W * dpr;
+glowCanvas.height = H * dpr;
+
+let bloomBlur    = 6;
+let bloomAlpha   = 1.00;
+let bloomPasses  = 2;        // additive layers before blur — main intensity lever
+let bloomEnabled = true;
+glowCanvas.style.filter  = `blur(${bloomBlur}px)`;
+glowCanvas.style.opacity = bloomAlpha;
+
 
 // Fit bezel to viewport
 (function resize() {
@@ -478,7 +502,7 @@ const SFX = {
     o.type = 'sine';
     o.frequency.setValueAtTime(14080, t);
     o.frequency.exponentialRampToValueAtTime(27.5, t + 0.25);
-    g.gain.setValueAtTime(0.06, t);
+    g.gain.setValueAtTime(0.03, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.30);
     o.start(t); o.stop(t + 0.32);
   } catch(e) {} },
@@ -545,6 +569,38 @@ function startAlienSound() {
       idx++;
     } catch(e) {}
     _alienSoundTmr = setTimeout(tick, beatMs);
+  }
+  tick();
+}
+
+// ── Mammoth bassline: alien scale one octave lower, runs while mammoth lives ──
+let _mammothSoundTmr = null;
+function stopMammothSound() { clearTimeout(_mammothSoundTmr); _mammothSoundTmr = null; }
+function startMammothSound() {
+  stopMammothSound();
+  const pool = [..._ALIEN_SCALE].sort(() => Math.random() - 0.5);
+  const notes = pool.slice(0, 8);
+  const beatMs = (680 + Math.random() * 80) / 3.4;
+  let idx = 0;
+  function tick() {
+    if (!mammoth) return;
+    try {
+      const a = audio();
+      const f = notes[Math.floor(idx / 2) % 8] * 0.5;  // half freq = one octave lower
+      const osc = a.createOscillator(), filt = a.createBiquadFilter(), g = a.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = f;
+      filt.type = 'lowpass'; filt.frequency.value = 420; filt.Q.value = 1.8;
+      const dur = beatMs / 1000 * 0.70;
+      g.gain.setValueAtTime(0, a.currentTime);
+      g.gain.linearRampToValueAtTime(0.18, a.currentTime + 0.025);
+      g.gain.setValueAtTime(0.13, a.currentTime + dur * 0.45);
+      g.gain.linearRampToValueAtTime(0, a.currentTime + dur);
+      osc.connect(filt); filt.connect(g); g.connect(master());
+      osc.start(a.currentTime); osc.stop(a.currentTime + dur + 0.05);
+      idx++;
+    } catch(e) {}
+    _mammothSoundTmr = setTimeout(tick, beatMs);
   }
   tick();
 }
@@ -1895,6 +1951,9 @@ let comboTmr = 0;    // frames of 2-s hold before rapid countdown to zero
 let comboZeroAnim = 0;  // shrink-to-nothing animation frames (15 total) on combo loss
 let _musicOn = true;    // M key toggle for attract music
 let shieldPod = null, shieldPodTmr = 1200 + Math.random() * 600;
+let mammoth = null;                          // mammoth asteroid (one at a time)
+let mammothSpawnTmr = 7200;                  // first spawn at ~2 min after L6 reached
+let godMode = false;                         // Shift+Cmd+G: enables dev spawn keys
 let shieldActive = false, shieldTmr = 0;  // player shield: absorbs 1 hit, 10 s
 
 // Ship geometry
@@ -1919,6 +1978,34 @@ function mkAsteroid(x, y, size) {
     vx: Math.cos(dir)*spd, vy: Math.sin(dir)*spd,
     rot: 0, rotV: (Math.random()-0.5)*0.045,
     size, pts, r: R*0.78, color: rndColor(),
+  };
+}
+
+function mkMammoth() {
+  const R = 240;  // 6× large-asteroid R=40
+  const n = 15 + Math.floor(Math.random() * 5);   // normal 9–13 + 6
+  const pts = Array.from({length: n}, (_, i) => {
+    const a = (i / n) * Math.PI * 2;
+    const r = R * (0.80 + Math.random() * 0.25);   // tighter range → less jagged
+    return [Math.cos(a) * r, Math.sin(a) * r];
+  });
+  // Spawn at a random edge, aim at the ship's current position
+  const side = Math.random();
+  let x, y;
+  if      (side < 0.25) { x = -R;     y = Math.random() * H; }
+  else if (side < 0.50) { x = W + R;  y = Math.random() * H; }
+  else if (side < 0.75) { x = Math.random() * W; y = -R; }
+  else                  { x = Math.random() * W; y = H + R; }
+  const tx = ship ? ship.x : W / 2, ty = ship ? ship.y : H / 2;
+  const dir = Math.atan2(ty - y, tx - x);
+  const spd = 0.35;
+  return {
+    x, y,
+    vx: Math.cos(dir) * spd, vy: Math.sin(dir) * spd,
+    rot: 0, rotV: (Math.random() - 0.5) * 0.006,
+    r: R * 0.78,
+    pts, hp: 150, hitFlashTmr: 0, hitJitterTmr: 0,
+    color: rndColor(),
   };
 }
 
@@ -2148,6 +2235,7 @@ function initGame() {
   hyperUpgradePod = null; hyperUpgradePodTmr = 3600 + Math.random() * 2400;
   shieldPod = null; shieldPodTmr = 1200 + Math.random() * 600;
   shieldActive = false; shieldTmr = 0;
+  stopMammothSound(); mammoth = null; mammothSpawnTmr = 1200;
   hyperUpgradeActive = false; hyperUpgradeTmr = 0;
   score = 0; lives = 3; level = 1; extraAt = 10000; extraStep = 15000; _lifeAnim = null; combo = 0; comboTmr = 0;
   fireTmr = 0; invTmr = 150; heat = 0;
@@ -2378,7 +2466,7 @@ function update() {
     levelBannerT = Math.min(1, levelBannerT + 1 / 45);  // 0.75 s zoom-out
     if (levelBannerT >= 1) {
       levelBannerAnimating = false;
-      if (state === 'levelstart') { beginPlay(); }
+      if (state === 'levelstart' || state === 'playing') { /* already playing */ }
       else if (state === 'levelcomplete') { clearTimeout(_levelCompleteTmr); level++; beatSpeed = 800; startLevelIntro(); }
     }
   }
@@ -2501,6 +2589,25 @@ function update() {
 
   // ── Asteroids ──
   asteroids.forEach(a => { a.x+=a.vx; a.y+=a.vy; a.rot+=a.rotV; wrap(a); });
+
+  // ── Mammoth asteroid ──
+  mammothSpawnTmr--;
+  if (level >= 6 && !mammoth && mammothSpawnTmr <= 0) {
+    mammoth = mkMammoth(); startMammothSound();
+    // Next spawn: 2.5 min at L6, scales to 60 s at L22+, ±20% jitter
+    const base = Math.max(3600, 9000 - (level - 6) * 300);
+    mammothSpawnTmr = Math.round(base * (0.8 + Math.random() * 0.4));
+  }
+  if (mammoth) {
+    mammoth.x += mammoth.vx; mammoth.y += mammoth.vy;
+    mammoth.rot += mammoth.rotV;
+    if (mammoth.hitFlashTmr > 0) mammoth.hitFlashTmr--;
+    if (mammoth.hitJitterTmr > 0) mammoth.hitJitterTmr--;
+    const mr = mammoth.r * 2;
+    if (mammoth.x < -mr || mammoth.x > W + mr || mammoth.y < -mr || mammoth.y > H + mr) {
+      stopMammothSound(); mammoth = null;
+    }
+  }
 
   // ── Bullets ──
   bullets = bullets.filter(b=>b.life>0);
@@ -2800,6 +2907,32 @@ function update() {
       b.life = 0;
     }
 
+    // vs mammoth
+    if (!hit && mammoth && b.life > 0 && hitCircleWrapped(b, mammoth.x, mammoth.y, mammoth.r)) {
+      mammoth.hp--;
+      mammoth.hitFlashTmr = 8;
+      mammoth.hitJitterTmr = 3;
+      tone(180, 'square', 0.04, 0.04);   // light thud per hit
+      b.life = 0; hit = true;
+      if (mammoth.hp <= 0) {
+        const mammothPts = Math.round(3000 * (1 + combo));
+        score += mammothPts;
+        if (hiScore < score) hiScore = score;
+        if (score >= extraAt) { if (lives < 5) { lives++; _lifeAnim = { index: lives-1, frames: 144, type: 'gain' }; SFX.life(); } extraAt += extraStep; extraStep += 5000; }
+        popups.push({ x: mammoth.x, y: mammoth.y, text: String(mammothPts), life: 1 });
+        burst(mammoth.x, mammoth.y, 60, 8, mammoth.color);
+        spawnRings(mammoth.x, mammoth.y, mammoth.r, mammoth.color);
+        SFX.bigBoom();
+        const off = mammoth.r * 0.5;
+        for (let i = 0; i < 6; i++)
+          asteroids.push(mkAsteroid(
+            mammoth.x + (Math.random() - 0.5) * off * 2,
+            mammoth.y + (Math.random() - 0.5) * off * 2, 3));
+        stopMammothSound(); mammoth = null;
+        { const base = Math.max(3600, 9000 - (level - 6) * 300); mammothSpawnTmr = Math.round(base * (0.8 + Math.random() * 0.4)); }
+      }
+    }
+
     // vs upgrade pod — must be shot to collect
     if (!hit && upgradePod && b.life > 0) {
       const pod = upgradePod;
@@ -2873,6 +3006,14 @@ function update() {
     }
   }
 
+  // ── Mammoth vs ship ──
+  if (mammoth && ship.alive && invTmr <= 0) {
+    if (Math.hypot(mammoth.x - ship.x, mammoth.y - ship.y) < mammoth.r + 9) {
+      if (shieldActive) { shieldActive = false; shieldTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); }
+      else killShip();
+    }
+  }
+
   // ── Next level ──
   if (asteroids.length === 0 && !ufo && state === 'playing') {
     stopBeat(); stopUFOSound();
@@ -2882,6 +3023,7 @@ function update() {
     hyperUpgradePod = null; hyperUpgradeActive = false; hyperUpgradeTmr = 0;
     hyperUpgradePodTmr = 2400 + Math.random() * 1200;
     shieldPod = null; shieldPodTmr = 1200 + Math.random() * 600;
+    stopMammothSound(); mammoth = null; mammothSpawnTmr = Math.round(Math.max(3600, 9000 - (level - 6) * 300) * (0.8 + Math.random() * 0.4));
     levelBonus = Math.round(levelTimer / 60 * (5000 + 200 * (level - 1)));
     score += levelBonus;
     if (hiScore < score) hiScore = score;
@@ -2947,6 +3089,29 @@ function drawAsteroid(a) {
         xfPoly(a.pts, px, py, a.rot, 1, a.color);
     }
   }
+}
+
+function drawMammoth() {
+  if (!mammoth) return;
+  const col = mammoth.hitFlashTmr > 0 ? '#FFFFFF' : mammoth.color;
+  const jx = mammoth.hitJitterTmr > 0 ? (Math.random() - 0.5) * 4 : 0;
+  const jy = mammoth.hitJitterTmr > 0 ? (Math.random() - 0.5) * 4 : 0;
+  xfPoly(mammoth.pts, mammoth.x + jx, mammoth.y + jy, mammoth.rot, 1, col);
+
+  // Health bar: 50×3 px, centred on the asteroid
+  const barW = 50, barH = 3;
+  const bx = Math.round(mammoth.x - barW / 2);
+  const by = Math.round(mammoth.y - barH / 2);
+  ctx.save();
+  ctx.strokeStyle = mammoth.color;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(bx + 0.5, by + 0.5, barW, barH);
+  const fill = Math.max(0, (mammoth.hp / 150) * barW);
+  if (fill > 0) {
+    ctx.fillStyle = mammoth.color;
+    ctx.fillRect(bx + 1, by + 1, fill - 1, barH - 1);
+  }
+  ctx.restore();
 }
 
 function drawShip(s) {
@@ -3174,6 +3339,16 @@ function drawParticles() {
 }
 
 function drawHUD() {
+  // God Mode indicator + legend
+  if (godMode) {
+    vText('GOD', W/2, 10, 8, 'center', 1, Math.floor(ticker/15)%2===0 ? '#ff4444' : '#aa0000');
+    const _gl = [
+      'I  SHIELD POD', 'O  DUAL FIRE', 'P  HYPER POD',
+      'K  MAMMOTH',    'M  LARGE UFO', 'N  SMALL UFO', 'L  ALIEN UFO',
+    ];
+    const _c = 'rgba(255,80,80,0.55)';
+    _gl.forEach((line, i) => vText(line, 10, H - 30 - (_gl.length - 1 - i) * 11, 7, 'left', 1, _c));
+  }
   // Score
   vText(String(score).padStart(6,'0'), 14, 21, 17, 'left');
   // Combo multiplier — hidden at zero; flashes during rapid countdown; shrinks on loss
@@ -3525,6 +3700,7 @@ function loop(ts) {
     } else {
       // playing | dead
       asteroids.forEach(drawAsteroid);
+      drawMammoth();
       drawRings();
       if (ufo) {
         ufo.trail.forEach((t, i) => {
@@ -3548,9 +3724,29 @@ function loop(ts) {
       drawHUD();
       if (state === 'dead' && Math.floor(ticker/22)%2===0)
         vText('SHIP DESTROYED', W/2, H/2, 22);
+      // Level-start banner zoom-out overlay (plays over live gameplay)
+      if (levelBannerAnimating && levelBannerT > 0) {
+        const { s: _os, a: _oa } = _bannerSA();
+        ctx.save(); ctx.globalAlpha = _oa;
+        const _cy = H / 2;
+        vText('LEVEL ' + level, W/2, _cy + (-47) * _os, 42 * _os, 'center', 1, PALETTE[0]);
+        vText('READY PLAYER 1', W/2, _cy + (- 6) * _os, 19 * _os, 'center', 1, PALETTE[4]);
+        vText('PRESS ANY KEY',  W/2, _cy + 41  * _os, 14 * _os);
+        ctx.restore();
+      }
     }
 
     vText('ASTER*IDS v' + VERSION, 8, H - 8, 10, 'left', 0.20);
+
+    // Bloom: additively stack copies of the frame, then CSS blur+screen blend does the rest.
+    // Each extra pass doubles the peak brightness before the blur spreads it — the main
+    // intensity lever. bloomPasses=1 is subtle; 3–4 gives a strong phosphor glow.
+    if (bloomEnabled) {
+      glowCtx.clearRect(0, 0, W * dpr, H * dpr);
+      glowCtx.globalCompositeOperation = 'lighter';
+      for (let p = 0; p < bloomPasses; p++) glowCtx.drawImage(canvas, 0, 0);
+      glowCtx.globalCompositeOperation = 'source-over';
+    }
 
     update();
     last = ts;
@@ -3561,6 +3757,25 @@ function loop(ts) {
 // ============================================================
 //  INPUT
 // ============================================================
+function _godSpawnUFO(type) {
+  if (ufo) stopUFOSound();
+  const side = Math.random() < 0.5 ? -30 : W + 30;
+  const spd  = type === 'alien' ? 2.0 : 1.44;
+  const big  = type === 'big';
+  ufo = {
+    x: side, y: 90 + Math.random() * (H - 180),
+    vx: side < 0 ? spd : -spd, vy: 0,
+    type, big,
+    r: type === 'alien' ? 7 : big ? 21 : 11,
+    fireTmr: big ? 110 : type === 'alien' ? 55 : 65,
+    sinePhase: Math.random() * Math.PI * 2, color: '#ffffff', trail: [],
+    ...(type === 'alien' ? {
+      erraticPhase: Math.random() * Math.PI * 2, erraticAmp: 1.6 + Math.random() * 1.0,
+      dirChangeTmr: 20 + Math.floor(Math.random() * 30),
+    } : {}),
+  };
+  if (type === 'alien') startAlienSound(); else startUFOSound();
+}
 const WASD_MAP = { w:'ArrowUp', a:'ArrowLeft', s:'ArrowDown', d:'ArrowRight' };
 window.addEventListener('keydown', e => {
   if (WASD_MAP[e.key]) keys[WASD_MAP[e.key]] = true;
@@ -3577,6 +3792,20 @@ window.addEventListener('keydown', e => {
     g.gain.cancelScheduledValues(audio().currentTime);
     g.gain.setValueAtTime(_musicOn ? 0.28 : 0, audio().currentTime);
     return;
+  }
+
+  // ° — toggle God Mode (dev spawn keys)
+  if (e.key === '°') { godMode = !godMode; return; }
+
+  // God Mode spawn keys (playing state only)
+  if (godMode && state === 'playing') {
+    if (e.key === 'i' || e.key === 'I') { spawnShieldPod(); return; }
+    if (e.key === 'o' || e.key === 'O') { spawnUpgradePod(); return; }
+    if (e.key === 'p' || e.key === 'P') { spawnHyperUpgradePod(); return; }
+    if (e.key === 'k' || e.key === 'K') { stopMammothSound(); mammoth = mkMammoth(); startMammothSound(); return; }
+    if (e.key === 'm' || e.key === 'M') { _godSpawnUFO('big');   return; }
+    if (e.key === 'n' || e.key === 'N') { _godSpawnUFO('small'); return; }
+    if (e.key === 'l' || e.key === 'L') { _godSpawnUFO('alien'); return; }
   }
 
   // Splash: any key skips to title (and wakes AudioContext)
@@ -3599,7 +3828,7 @@ window.addEventListener('keydown', e => {
     return;
   }
 
-  if (state === 'levelstart' && levelReady && !levelBannerAnimating) { levelBannerAnimating = true; levelBannerT = 0; return; }
+  if (state === 'levelstart' && levelReady && !levelBannerAnimating) { beginPlay(); levelBannerAnimating = true; levelBannerT = 0; return; }
 
   // Any key starts game from attract/hiscores/globalscores screens
   if (state === 'hiscores' || state === 'globalscores' || state === 'attract') {
