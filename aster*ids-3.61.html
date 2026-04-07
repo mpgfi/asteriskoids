@@ -176,42 +176,38 @@ function shiftPaletteHue(_unused) {
 }
 function resetPalette() { PALETTE = generatePalette(270); currentPalette = [...PALETTE]; }
 
-// ── Global leaderboard (Supabase) ────────────────────────────
-// Create a free project at supabase.com, then a table:
-//   CREATE TABLE scores (id uuid default gen_random_uuid() primary key,
-//     name text, score integer, created_at timestamptz default now());
-// Enable Row Level Security, add policy: allow anon SELECT and INSERT.
-const SUPABASE_URL = 'https://deykgxvihymhpqxptjsm.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_uVUnmPsks3_x2FgKAP85jQ_8Lc04f7o';
+// ── Global leaderboard (Firebase Realtime Database) ──────────
+// Setup (one-time):
+//   1. console.firebase.google.com → Add project
+//   2. Build → Realtime Database → Create database → Start in test mode
+//   3. In Rules tab, set both ".read" and ".write" to true and Publish
+//      (test mode does this for 30 days — just re-publish to keep it open)
+//   4. Paste your database URL below
+const FIREBASE_URL = 'https://YOUR-PROJECT-default-rtdb.firebaseio.com';
 
 let globalScores = [];
 let globalScoresState = 'idle'; // idle | loading | ready | error | offline
 
 async function fetchGlobalScores() {
-  if (!SUPABASE_URL) { globalScoresState = 'offline'; return; }
+  if (!FIREBASE_URL || FIREBASE_URL.includes('YOUR-PROJECT')) { globalScoresState = 'offline'; return; }
   globalScoresState = 'loading';
   try {
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/scores?select=name,score&order=score.desc&limit=10`,
-      { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
-    );
+    const res = await fetch(`${FIREBASE_URL}/scores.json`);
     if (!res.ok) throw new Error(res.status);
-    globalScores = await res.json();
+    const data = await res.json();
+    globalScores = data
+      ? Object.values(data).sort((a, b) => b.score - a.score).slice(0, 10)
+      : [];
     globalScoresState = 'ready';
   } catch(e) { globalScoresState = 'error'; }
 }
 
 async function submitGlobalScore(name, score) {
-  if (!SUPABASE_URL) return;
+  if (!FIREBASE_URL || FIREBASE_URL.includes('YOUR-PROJECT')) return;
   try {
-    await fetch(`${SUPABASE_URL}/rest/v1/scores`, {
+    await fetch(`${FIREBASE_URL}/scores.json`, {
       method: 'POST',
-      headers: {
-        apikey: SUPABASE_KEY,
-        Authorization: `Bearer ${SUPABASE_KEY}`,
-        'Content-Type': 'application/json',
-        Prefer: 'return=minimal'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, score })
     });
     fetchGlobalScores();
