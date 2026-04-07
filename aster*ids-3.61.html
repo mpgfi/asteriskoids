@@ -2276,7 +2276,7 @@ function startAttractCycle() {
     state = 'hiscores';
     attractTmr = setTimeout(() => {
       if (state !== 'hiscores') return;
-      if (SUPABASE_URL) { state = 'globalscores'; fetchGlobalScores();
+      if (FIREBASE_URL) { state = 'globalscores'; fetchGlobalScores();
         attractTmr = setTimeout(() => { if (state === 'globalscores') startAttractPlay(); }, 5000);
       } else { startAttractPlay(); }
     }, 5000);
@@ -3483,7 +3483,7 @@ function drawTitle() {
   vText('F \u2014 FULL SCREEN TOGGLE', W/2, H/2+89, 10, 'center', 1, '#44ff88');
   vText('M \u2014 ' + (_musicOn ? 'MUTE MUSIC' : 'UNMUTE MUSIC'), W/2, H - 10, 9, 'center', 1, 'rgba(160,160,255,0.6)');
   // Alternating local / global high score every 2 s (120 frames)
-  const showGlobal = SUPABASE_URL && Math.floor(ticker / 120) % 2 === 1;
+  const showGlobal = FIREBASE_URL && Math.floor(ticker / 120) % 2 === 1;
   if (showGlobal) {
     vText('GLOBAL HIGH SCORE', W/2, H/2+146, 14, 'center', 1, '#FF00FF');
     if (globalScores.length > 0)
@@ -3535,7 +3535,7 @@ function drawGlobalScores() {
   vText('GLOBAL HIGH SCORES', W/2, 130, 32);
   if (globalScoresState === 'offline') {
     vText('NOT CONFIGURED', W/2, H/2 - 20, 19);
-    vText('SET SUPABASE_URL AND KEY IN SOURCE', W/2, H/2 + 16, 10);
+    vText('SET FIREBASE_URL AND KEY IN SOURCE', W/2, H/2 + 16, 10);
   } else if (globalScoresState === 'loading') {
     vText('LOADING...', W/2, H/2, 16);
   } else if (globalScoresState === 'error') {
@@ -3872,7 +3872,7 @@ window.addEventListener('keydown', e => {
         hiScore = 0; saveScores(); _resetConfirm = false; _resetFlash = 120;
         attractTmr = setTimeout(() => {
           if (state !== 'hiscores') return;
-          if (SUPABASE_URL) { state = 'globalscores'; fetchGlobalScores();
+          if (FIREBASE_URL) { state = 'globalscores'; fetchGlobalScores();
             attractTmr = setTimeout(() => { if (state === 'globalscores') startAttractPlay(); }, 5000);
           } else { startAttractPlay(); }
         }, 5000);
@@ -3880,7 +3880,7 @@ window.addEventListener('keydown', e => {
         _resetConfirm = false;
         attractTmr = setTimeout(() => {
           if (state !== 'hiscores') return;
-          if (SUPABASE_URL) { state = 'globalscores'; fetchGlobalScores();
+          if (FIREBASE_URL) { state = 'globalscores'; fetchGlobalScores();
             attractTmr = setTimeout(() => { if (state === 'globalscores') startAttractPlay(); }, 5000);
           } else { startAttractPlay(); }
         }, 5000);
