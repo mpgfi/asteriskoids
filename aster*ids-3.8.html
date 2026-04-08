@@ -182,12 +182,6 @@ function resetPalette() { PALETTE = generatePalette(270); currentPalette = [...P
 let _speechOn = true;
 let _speechVoice = null;
 const _synth = window.speechSynthesis;
-const _SPEECH_VOICES = [
-  { pitch: 0.00, rate: 0.85, vol: 0.35 },
-  { pitch: 0.04, rate: 0.88, vol: 0.25 },
-  { pitch: 0.08, rate: 0.82, vol: 0.25 },
-];
-let _speechFrames = [], _speechFramesReady = false;
 
 function _initSpeech() {
   if (!_synth) return;
@@ -200,49 +194,18 @@ function _initSpeech() {
   };
   pick();
   _synth.addEventListener('voiceschanged', pick);
-  const src = `<!DOCTYPE html><html><body><script>
-    var _vx=[];
-    function lv(){ _vx=speechSynthesis.getVoices(); }
-    lv(); speechSynthesis.onvoiceschanged=lv;
-    window.onmessage=function(e){
-      speechSynthesis.cancel();
-      var d=e.data, u=new SpeechSynthesisUtterance(d.t);
-      var v=_vx.find(function(x){return x.name===d.vn;});
-      if(v) u.voice=v;
-      u.pitch=d.p; u.rate=d.r; u.volume=d.vol;
-      speechSynthesis.speak(u);
-    };
-  <\/script></body></html>`;
-  for (let i = 0; i < 2; i++) {
-    const f = document.createElement('iframe');
-    f.style.cssText = 'position:fixed;width:0;height:0;opacity:0;border:none;pointer-events:none;';
-    f.srcdoc = src;
-    document.body.appendChild(f);
-    _speechFrames.push(f);
-  }
-  setTimeout(() => { _speechFramesReady = true; }, 1500);
 }
 _initSpeech();
 
 function speak(text) {
   if (!_synth || !_speechOn) return;
   _synth.cancel();
-  const vn = _speechVoice ? _speechVoice.name : '';
   const u = new SpeechSynthesisUtterance(text);
   if (_speechVoice) u.voice = _speechVoice;
-  u.pitch  = _SPEECH_VOICES[0].pitch;
-  u.rate   = _SPEECH_VOICES[0].rate;
-  u.volume = _SPEECH_VOICES[0].vol;
+  u.pitch  = 0.00;
+  u.rate   = 0.85;
+  u.volume = 0.35;
   _synth.speak(u);
-  if (_speechFramesReady) {
-    _SPEECH_VOICES.slice(1).forEach((v, i) => {
-      setTimeout(() => {
-        _speechFrames[i].contentWindow.postMessage(
-          { t: text, vn, p: v.pitch, r: v.rate, vol: v.vol }, '*'
-        );
-      }, (i + 1) * 20);
-    });
-  }
 }
 
 // ── Global leaderboard (Firebase Realtime Database) ──────────
@@ -2002,6 +1965,13 @@ let _splashAnimFrame = 0;   // counts up each draw call; drives the title reveal
 let _splashStrokes   = null; // cached sorted stroke list built on first splash draw
 let score   = 0;
 let hiScore = scores[0].score;
+let _hiScoreBeaten = false;  // true once player surpasses hiScore this game
+function checkHiScore() {
+  if (score > hiScore) {
+    hiScore = score;
+    if (!_hiScoreBeaten) { _hiScoreBeaten = true; }
+  }
+}
 let lives   = 3;
 // Life icon blink: {index, frames, type:'lose'|'gain'} — set when a life changes
 let _lifeAnim = null;
@@ -2062,7 +2032,7 @@ function mkAsteroid(x, y, size) {
   return {
     x, y,
     vx: Math.cos(dir)*spd, vy: Math.sin(dir)*spd,
-    rot: 0, rotV: (Math.random()-0.5)*0.045 * Math.pow(1.3, 3 - size),
+    rot: 0, rotV: (Math.random()-0.5)*0.05625 * Math.pow(1.3, 3 - size),
     size, pts, r: R*0.78, color: rndColor(),
   };
 }
@@ -2113,8 +2083,11 @@ function mkUFO() {
   }
   const big = type === 'big';
   const spd = type === 'alien' ? 2.0 : 1.44;
+  const x = side, y = 90 + Math.random() * (H - 180);
+  const sx = ship && ship.alive ? ship.x : W / 2;
+  const sy = ship && ship.alive ? ship.y : H / 2;
   return {
-    x: side, y: 90 + Math.random() * (H - 180),
+    x, y,
     vx: side < 0 ? spd : -spd, vy: 0,
     type, big,
     r: type === 'alien' ? 7 : big ? 21 : 11,
@@ -2123,9 +2096,9 @@ function mkUFO() {
     color: '#ffffff',
     trail: [],
     ...(type === 'alien' ? {
-      erraticPhase:  Math.random() * Math.PI * 2,
-      erraticAmp:    1.6 + Math.random() * 1.0,
-      dirChangeTmr:  20 + Math.floor(Math.random() * 30),
+      spiralAngle:  Math.atan2(y - sy, x - sx),
+      spiralRadius: Math.hypot(x - sx, y - sy),
+      spiralOmega:  (Math.random() < 0.5 ? 1 : -1) * 0.025,
     } : {}),
   };
 }
@@ -2323,7 +2296,7 @@ function initGame() {
   shieldActive = false; shieldTmr = 0;
   stopMammothSound(); mammoth = null; mammothSpawnTmr = 1200;
   hyperUpgradeActive = false; hyperUpgradeTmr = 0;
-  score = 0; lives = 3; level = 1; extraAt = 20000; extraStep = 30000; _lifeAnim = null; combo = 0; comboTmr = 0;
+  score = 0; lives = 3; level = 1; extraAt = 20000; extraStep = 30000; _lifeAnim = null; combo = 0; comboTmr = 0; _hiScoreBeaten = false;
   fireTmr = 0; invTmr = 150; heat = 0;
   startLevelIntro();
 }
@@ -2597,7 +2570,7 @@ function update() {
     const firing = !!(keys[' '] || keys['Space']) && _fireLock <= 0;
     // Pending upgrades activate the moment the player releases and re-presses space
     if (!firing) {
-      if (_upgradePending)      { upgradeActive = true; upgradeTmr = 360; _upgradeGunLeft = false; _upgradePending = false; }
+      if (_upgradePending)      { upgradeActive = true; upgradeTmr = 540; _upgradeGunLeft = false; _upgradePending = false; }
       if (_hyperUpgradePending) { hyperUpgradeActive = true; hyperUpgradeTmr = 600; _hyperUpgradePending = false; }
     }
     if (heatCutoutTmr > 0) {
@@ -2608,7 +2581,7 @@ function update() {
       if (heat < 0.5) heatWasCut = false;
     } else if (firing) {
       // buildup: linear 0→0.5, eased 0.5→1
-      const base = (upgradeActive || hyperUpgradeActive) ? 0.006 : 0.020;
+      const base = (upgradeActive || hyperUpgradeActive) ? 0.0048 : 0.016;
       heat = Math.min(1, heat + (heat < 0.5 ? base : Math.max(0.0002, base * 2 * (1 - heat))));
       if (heat >= 1) {
         heat = 1; heatCutoutTmr = 108; heatWasCut = true;
@@ -2673,7 +2646,7 @@ function update() {
   if (upgradeTmr > 0) { upgradeTmr--; if (upgradeTmr === 0) upgradeActive = false; }
   if (hyperUpgradeTmr > 0) { hyperUpgradeTmr--; if (hyperUpgradeTmr === 0) hyperUpgradeActive = false; }
   if (comboZeroAnim > 0) comboZeroAnim--;
-  if (shieldTmr > 0) { shieldTmr--; if (shieldTmr === 0) { shieldActive = false; for (let _i=0;_i<4;_i++) tone(880,'sine',0.06,0.06,_i*0.09); } }
+  if (shieldTmr > 0) { shieldTmr--; if (shieldTmr === 0) { shieldActive = false; speak('shields are down!'); for (let _i=0;_i<4;_i++) tone(880,'sine',0.06,0.06,_i*0.09); } }
 
   // ── Asteroids ──
   asteroids.forEach(a => { a.x+=a.vx; a.y+=a.vy; a.rot+=a.rotV; });
@@ -2688,7 +2661,7 @@ function update() {
   // ── Mammoth asteroid ──
   mammothSpawnTmr--;
   if (level >= 6 && !mammoth && mammothSpawnTmr <= 0 && levelGraceTmr <= 0) {
-    mammoth = mkMammoth(); startMammothSound(); speak('Danger! Danger!');
+    mammoth = mkMammoth(); startMammothSound(); speak('massive object entering sector!');
     // Next spawn: 2.5 min at L6, scales to 60 s at L22+, ±20% jitter
     const base = Math.max(3600, 9000 - (level - 6) * 300);
     mammothSpawnTmr = Math.round(base * (0.8 + Math.random() * 0.4));
@@ -2713,7 +2686,7 @@ function update() {
   ufoSpawnTmr -= 1;
   if (level >= 2 && !ufo && ufoSpawnTmr <= 0 && asteroids.length > 4 && levelGraceTmr <= 0) {
     ufo = mkUFO();
-    if (ufo.type === 'alien') { startAlienSound(); speak('alert!'); } else { startUFOSound(ufo.big); speak('incoming!'); }
+    if (ufo.type === 'alien') { startAlienSound(); speak('alien life form detected!'); } else { startUFOSound(ufo.big); speak('incoming!'); }
     ufoSpawnTmr = Math.max(300, 700 - level * 25) + Math.random() * Math.max(150, 400 - level * 15);
   }
   if (ufo) {
@@ -2723,21 +2696,17 @@ function update() {
     }
     ufo.x += ufo.vx; ufo.y += ufo.vy;
     if (ufo.type === 'alien') {
-      // Erratic homing: steers toward player with compound sine wobble overlay.
-      // vx/vy lerp toward a target derived from the player vector so it never escapes.
-      ufo.sinePhase    += 0.048;
-      ufo.erraticPhase += 0.075;
-      const dxP = ship.alive ? (ship.x - ufo.x) : 0;
-      const dyP = ship.alive ? (ship.y - ufo.y) : 0;
-      const targetVx = Math.max(-2.5, Math.min(2.5, dxP * 0.03))
-                     + Math.sin(ufo.sinePhase * 0.7) * 0.9;
-      const targetVy = Math.max(-2.5, Math.min(2.5, dyP * 0.03))
-                     + Math.sin(ufo.erraticPhase) * ufo.erraticAmp * 0.55
-                     + Math.sin(ufo.sinePhase * 1.6) * 0.7;
-      ufo.vx += (targetVx - ufo.vx) * 0.06;
-      ufo.vy += (targetVy - ufo.vy) * 0.06;
-      const spd = Math.hypot(ufo.vx, ufo.vy);
-      if (spd > 3.2) { ufo.vx *= 3.2 / spd; ufo.vy *= 3.2 / spd; }
+      // Shrinking spiral centered on player — tightens until minimum radius
+      ufo.spiralAngle  += ufo.spiralOmega;
+      ufo.spiralRadius  = Math.max(35, ufo.spiralRadius - 0.6);
+      const cx = ship.alive ? ship.x : W / 2;
+      const cy = ship.alive ? ship.y : H / 2;
+      const tx = cx + Math.cos(ufo.spiralAngle) * ufo.spiralRadius;
+      const ty = cy + Math.sin(ufo.spiralAngle) * ufo.spiralRadius;
+      const dx = tx - ufo.x, dy = ty - ufo.y;
+      const dist = Math.hypot(dx, dy);
+      const spd = Math.min(dist, 3.8);
+      if (dist > 0.1) { ufo.vx = dx / dist * spd; ufo.vy = dy / dist * spd; }
     } else {
       // Standard UFO snake motion biased toward player y
       ufo.sinePhase += 0.032;
@@ -2970,7 +2939,7 @@ function update() {
         combo = Math.min(5.0, Math.round((combo + 0.05) * 100) / 100);
         comboTmr = 120;
         if (score >= extraAt) { if (lives < 5) { lives++; _lifeAnim = { index: lives-1, frames: 144, type: 'gain' }; SFX.life(); speak('extra ship!'); } extraAt += extraStep; extraStep += 10000; }
-        if (hiScore < score) hiScore = score;
+        checkHiScore();
         popups.push({ x: a.x, y: a.y, text: String(awarded), life: 1 });
         [SFX.smlBoom, SFX.medBoom, SFX.bigBoom][a.size-1]?.();
         burst(a.x, a.y, 8+a.size*5, 2+a.size, a.color);
@@ -2993,7 +2962,7 @@ function update() {
       score += awardedUfo;
       combo = Math.min(2.0, Math.round((combo + 0.05) * 100) / 100);
       comboTmr = 120;
-      if (hiScore < score) hiScore = score;
+      checkHiScore();
       if (score >= extraAt) { if (lives < 5) { lives++; SFX.life(); } extraAt += extraStep; extraStep += 10000; }
       popups.push({ x: ufo.x, y: ufo.y, text: String(awardedUfo), life: 1 });
       burst(ufo.x, ufo.y, 30, 4, ufo.color);
@@ -3012,7 +2981,7 @@ function update() {
       if (mammoth.hp <= 0) {
         const mammothPts = Math.round(3000 * (1 + combo));
         score += mammothPts;
-        if (hiScore < score) hiScore = score;
+        checkHiScore();
         if (score >= extraAt) { if (lives < 5) { lives++; _lifeAnim = { index: lives-1, frames: 144, type: 'gain' }; SFX.life(); speak('extra ship!'); } extraAt += extraStep; extraStep += 10000; }
         popups.push({ x: mammoth.x, y: mammoth.y, text: String(mammothPts), life: 1 });
         burst(mammoth.x, mammoth.y, 60, 8, mammoth.color);
@@ -3036,7 +3005,7 @@ function update() {
         burst(pod.x, pod.y, 24, 4, '#FFFF00');
         spawnRings(pod.x, pod.y, pod.r * 2, '#FFFF00');
         SFX.medBoom();
-        speak('double fire!');
+        speak('dual fire!');
         _upgradePending = true; heat = 0; fireTmr = 0;
         upgradePod = null;
         b.life = 0;
@@ -3079,7 +3048,7 @@ function update() {
     for (const b of bullets) {
       if (b.own !== 'ufo') continue;
       if (hitCircleWrapped(b, ship.x, ship.y, 10)) {
-        if (shieldActive) { shieldActive = false; shieldTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); b.life = 0; }
+        if (shieldActive) { shieldActive = false; shieldTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); speak('shields are down!'); b.life = 0; }
         else killShip();
         break;
       }
@@ -3089,7 +3058,7 @@ function update() {
   // ── UFO body vs ship ──
   if (ufo && ship.alive && invTmr <= 0) {
     if (wrapDist(ufo.x, ufo.y, ship.x, ship.y) < ufo.r + 9) {
-      if (shieldActive) { shieldActive = false; shieldTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); }
+      if (shieldActive) { shieldActive = false; shieldTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); speak('shields are down!'); }
       else killShip();
     }
   }
@@ -3098,7 +3067,7 @@ function update() {
   if (ship.alive && invTmr <= 0) {
     for (const a of asteroids) {
       if (wrapDist(a.x, a.y, ship.x, ship.y) < a.r + 9) {
-        if (shieldActive) { shieldActive = false; shieldTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); break; }
+        if (shieldActive) { shieldActive = false; shieldTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); speak('shields are down!'); break; }
         else { killShip(); break; }
       }
     }
@@ -3107,13 +3076,13 @@ function update() {
   // ── Mammoth vs ship ──
   if (mammoth && ship.alive && invTmr <= 0) {
     if (Math.hypot(mammoth.x - ship.x, mammoth.y - ship.y) < mammoth.r + 9) {
-      if (shieldActive) { shieldActive = false; shieldTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); }
+      if (shieldActive) { shieldActive = false; shieldTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); speak('shields are down!'); }
       else killShip();
     }
   }
 
   // ── Next level ──
-  if (asteroids.length === 0 && !ufo && state === 'playing') {
+  if (asteroids.length === 0 && !ufo && !mammoth && state === 'playing') {
     stopBeat(); stopUFOSound();
     bullets = [];
     upgradePod = null; upgradeActive = false; upgradeTmr = 0; _upgradeGunLeft = false;
@@ -3124,7 +3093,7 @@ function update() {
     stopMammothSound(); mammoth = null; mammothSpawnTmr = Math.round(Math.max(3600, 9000 - (level - 6) * 300) * (0.8 + Math.random() * 0.4));
     levelBonus = Math.round(levelTimer / 60 * (5000 + 200 * (level - 1)));
     score += levelBonus;
-    if (hiScore < score) hiScore = score;
+    checkHiScore();
     burst(W/2, H/2, 25, 5, rndColor());
     burst(W/2, H/2, 25, 5, rndColor());
     // playLevelClearFanfare(); // temporarily replaced by speech
@@ -3162,7 +3131,7 @@ function killShip() {
     state = 'gameover'; _gameOverTime = Date.now();
     setTimeout(() => {
       if (state !== 'gameover') return;
-      if (goToName) { state = 'nameentry'; } else { state = 'title'; startAttractCycle(); }
+      if (goToName) { state = 'nameentry'; speak('well done human!'); } else { state = 'title'; startAttractCycle(); }
     }, 3000);
   } else {
     state = 'dead';
@@ -3900,19 +3869,23 @@ function _godSpawnUFO(type) {
   const side = Math.random() < 0.5 ? -30 : W + 30;
   const spd  = type === 'alien' ? 2.0 : 1.44;
   const big  = type === 'big';
+  const x = side, y = 90 + Math.random() * (H - 180);
+  const sx = ship && ship.alive ? ship.x : W / 2;
+  const sy = ship && ship.alive ? ship.y : H / 2;
   ufo = {
-    x: side, y: 90 + Math.random() * (H - 180),
+    x, y,
     vx: side < 0 ? spd : -spd, vy: 0,
     type, big,
     r: type === 'alien' ? 7 : big ? 21 : 11,
     fireTmr: big ? 110 : type === 'alien' ? 55 : 65,
     sinePhase: Math.random() * Math.PI * 2, color: '#ffffff', trail: [],
     ...(type === 'alien' ? {
-      erraticPhase: Math.random() * Math.PI * 2, erraticAmp: 1.6 + Math.random() * 1.0,
-      dirChangeTmr: 20 + Math.floor(Math.random() * 30),
+      spiralAngle:  Math.atan2(y - sy, x - sx),
+      spiralRadius: Math.hypot(x - sx, y - sy),
+      spiralOmega:  (Math.random() < 0.5 ? 1 : -1) * 0.025,
     } : {}),
   };
-  if (type === 'alien') startAlienSound(); else startUFOSound();
+  if (type === 'alien') { startAlienSound(); speak('alien life form detected!'); } else { startUFOSound(); speak('incoming!'); }
 }
 const WASD_MAP = { w:'ArrowUp', a:'ArrowLeft', s:'ArrowDown', d:'ArrowRight' };
 window.addEventListener('keydown', e => {
@@ -3952,7 +3925,7 @@ window.addEventListener('keydown', e => {
     if (e.key === 'i' || e.key === 'I') { spawnShieldPod(); return; }
     if (e.key === 'o' || e.key === 'O') { spawnUpgradePod(); return; }
     if (e.key === 'p' || e.key === 'P') { spawnHyperUpgradePod(); return; }
-    if (e.key === 'k' || e.key === 'K') { stopMammothSound(); mammoth = mkMammoth(); startMammothSound(); return; }
+    if (e.key === 'k' || e.key === 'K') { stopMammothSound(); mammoth = mkMammoth(); startMammothSound(); speak('massive object entering sector!'); return; }
     if (e.key === 'm' || e.key === 'M') { _godSpawnUFO('big');   return; }
     if (e.key === 'n' || e.key === 'N') { _godSpawnUFO('small'); return; }
     if (e.key === 'l' || e.key === 'L') { _godSpawnUFO('alien'); return; }
