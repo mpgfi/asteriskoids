@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Voice Lab</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #111; color: #ccc; font-family: monospace; font-size: 13px; padding: 30px; }
+  h1 { color: #fff; font-size: 16px; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 24px; }
+  h2 { color: #666; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 14px; }
+  .controls { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-end; }
+  .ctrl { display: flex; flex-direction: column; gap: 5px; }
+  label { color: #888; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
+  select { background: #222; color: #fff; border: 1px solid #444; padding: 6px 8px; font-family: monospace; font-size: 13px; min-width: 220px; }
+  input[type=range] { width: 140px; accent-color: #8844cc; }
+  input[type=number] { background: #1a1a1a; color: #fff; border: 1px solid #333; padding: 5px 7px; font-family: monospace; font-size: 13px; width: 64px; text-align: center; }
+  input[type=number]:focus { outline: none; border-color: #8844cc; }
+  .val { color: #8844cc; font-size: 12px; }
+  .section { margin-bottom: 28px; }
+  hr { border: none; border-top: 1px solid #1e1e1e; margin: 24px 0; }
+  button { background: #222; color: #8844cc; border: 1px solid #8844cc; padding: 7px 14px;
+           font-family: monospace; font-size: 12px; cursor: pointer; letter-spacing: 1px; text-transform: uppercase; }
+  button:hover { background: #8844cc; color: #fff; }
+  button.active { background: #8844cc; color: #fff; }
+  button.play { min-width: 68px; }
+  .phrases { display: flex; flex-direction: column; gap: 6px; }
+  .phrase { display: flex; gap: 10px; align-items: center; }
+  .phrase input[type=text] { background: #1a1a1a; color: #fff; border: 1px solid #333;
+                              padding: 7px 10px; font-family: monospace; font-size: 14px; width: 210px; }
+  .phrase input[type=text]:focus { outline: none; border-color: #8844cc; }
+  .event-label { color: #555; font-size: 11px; width: 110px; text-align: right; flex-shrink: 0; }
+  .offset-grid { display: grid; grid-template-columns: 70px repeat(3, 66px); gap: 6px;
+                 align-items: center; margin-top: 10px; }
+  .offset-grid .og-label { color: #666; font-size: 11px; text-align: right; padding-right: 6px; }
+  .hint { color: #444; font-size: 11px; margin-top: 14px; }
+</style>
+</head>
+<body>
+
+<h1>Voice Lab — Aster*ids</h1>
+
+<!-- ── Speech ── -->
+<div class="section">
+  <h2>Speech</h2>
+  <div class="controls">
+    <div class="ctrl">
+      <label>Voice</label>
+      <select id="voiceSelect"></select>
+    </div>
+    <div class="ctrl">
+      <label>Volume <span class="val" id="volVal">0.33</span></label>
+      <input type="range" id="vol" min="0" max="1" step="0.05" value="0.33">
+    </div>
+  </div>
+</div>
+
+<hr>
+
+<!-- ── Stacked voices ── -->
+<div class="section">
+  <h2>Stacked voices</h2>
+  <div class="controls">
+    <div class="ctrl">
+      <label>Enable</label>
+      <button id="stackToggle" onclick="toggleStack()">Off</button>
+    </div>
+    <div class="ctrl">
+      <label>Stagger <span class="val" id="staggerVal">20</span> ms</label>
+      <input type="range" id="stagger" min="0" max="200" step="5" value="20">
+    </div>
+  </div>
+  <div class="offset-grid">
+    <div class="og-label"></div>
+    <div style="color:#666;font-size:11px;text-align:center;">voice 1</div>
+    <div style="color:#666;font-size:11px;text-align:center;">voice 2</div>
+    <div style="color:#666;font-size:11px;text-align:center;">voice 3</div>
+    <div class="og-label">pitch</div>
+    <input type="number" id="stkP0" min="0" max="2" step="0.01" value="0.00">
+    <input type="number" id="stkP1" min="0" max="2" step="0.01" value="0.04">
+    <input type="number" id="stkP2" min="0" max="2" step="0.01" value="0.08">
+    <div class="og-label">rate</div>
+    <input type="number" id="stkR0" min="0.1" max="2" step="0.01" value="0.85">
+    <input type="number" id="stkR1" min="0.1" max="2" step="0.01" value="0.88">
+    <input type="number" id="stkR2" min="0.1" max="2" step="0.01" value="0.82">
+  </div>
+  <p class="hint">3 voices at different pitch + rate — creates phasing. Chrome/macOS works best.</p>
+</div>
+
+<hr>
+
+<!-- ── Phrases ── -->
+<div class="section">
+  <h2>Phrases</h2>
+  <div class="phrases" id="phrases"></div>
+</div>
+
+<div style="display:flex;gap:12px;margin-top:20px;">
+  <button onclick="stopAll()" style="color:#ff5555;border-color:#ff5555;" onmouseover="this.style.background='#ff5555';this.style.color='#000'" onmouseout="this.style.background='';this.style.color='#ff5555'">■ Stop</button>
+  <button onclick="copySettings()">Copy settings</button>
+</div>
+
+<script>
+const PHRASES = [
+  { event: 'level start',    text: 'level 1!' },
+  { event: 'level clear',    text: 'sector clear!' },
+  { event: 'extra life',     text: 'extra ship!' },
+  { event: 'ship destroyed', text: 'ship destroyed!' },
+  { event: 'game over',      text: 'game over!' },
+  { event: 'incoming',       text: 'incoming!' },
+  { event: 'alert',          text: 'alert!' },
+  { event: 'mammoth',        text: 'Danger! Danger!' },
+  { event: 'hyperspace',     text: 'hyperspace!' },
+];
+
+const synth = window.speechSynthesis;
+let voices = [];
+let stackEnabled = false;
+let _autoStopTimer = null;
+let _speechFrames = [], _framesReady = false;
+
+function populateVoices() {
+  voices = synth.getVoices();
+  const sel = document.getElementById('voiceSelect');
+  sel.innerHTML = '';
+  voices.forEach((v, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = `${v.name} (${v.lang})`;
+    if (/zarvox|fred|trinoids|cellos/i.test(v.name)) opt.textContent += ' ★';
+    sel.appendChild(opt);
+  });
+  const robo = voices.findIndex(v => /zarvox|fred|trinoids|cellos/i.test(v.name));
+  if (robo >= 0) sel.value = robo;
+}
+populateVoices();
+synth.addEventListener('voiceschanged', populateVoices);
+
+document.getElementById('vol').addEventListener('input', e => {
+  document.getElementById('volVal').textContent = parseFloat(e.target.value).toFixed(2);
+});
+document.getElementById('stagger').addEventListener('input', e => {
+  document.getElementById('staggerVal').textContent = Math.round(parseFloat(e.target.value));
+});
+
+function stopAll() {
+  synth.cancel();
+  if (_autoStopTimer) { clearTimeout(_autoStopTimer); _autoStopTimer = null; }
+  _speechFrames.forEach(f => {
+    try { f.contentWindow.postMessage({ cancel: true }, '*'); } catch(e) {}
+  });
+}
+
+function toggleStack() {
+  stackEnabled = !stackEnabled;
+  const btn = document.getElementById('stackToggle');
+  btn.textContent = stackEnabled ? 'On' : 'Off';
+  btn.classList.toggle('active', stackEnabled);
+  if (stackEnabled) initSpeechFrames();
+}
+
+function initSpeechFrames() {
+  _framesReady = false;
+  _speechFrames.forEach(f => f.remove());
+  _speechFrames = [];
+  const src = `<!DOCTYPE html><html><body><script>
+    var _vx=[];
+    function lv(){ _vx=speechSynthesis.getVoices(); }
+    lv(); speechSynthesis.onvoiceschanged=lv;
+    window.onmessage=function(e){
+      if(e.data && e.data.cancel){ speechSynthesis.cancel(); return; }
+      speechSynthesis.cancel();
+      var d=e.data, u=new SpeechSynthesisUtterance(d.t);
+      var v=_vx.find(function(x){return x.name===d.vn;});
+      if(v) u.voice=v;
+      u.pitch=d.p; u.rate=d.r; u.volume=d.vol;
+      speechSynthesis.speak(u);
+    };
+  <\/script></body></html>`;
+  for (let i = 0; i < 2; i++) {
+    const f = document.createElement('iframe');
+    f.style.cssText = 'position:fixed;width:0;height:0;opacity:0;border:none;pointer-events:none;';
+    f.srcdoc = src;
+    document.body.appendChild(f);
+    _speechFrames.push(f);
+  }
+  setTimeout(() => { _framesReady = true; }, 1200);
+}
+
+function postToFrame(idx, text, pitch, rate) {
+  if (!_framesReady || !_speechFrames[idx]) return;
+  const vi = parseInt(document.getElementById('voiceSelect').value);
+  _speechFrames[idx].contentWindow.postMessage({
+    t: text,
+    vn: voices[vi] ? voices[vi].name : '',
+    p: pitch,
+    r: rate,
+    vol: parseFloat(document.getElementById('vol').value) * 0.65,
+  }, '*');
+}
+
+function getStkPitches() { return [0,1,2].map(i => parseFloat(document.getElementById('stkP'+i).value)); }
+function getStkRates()   { return [0,1,2].map(i => parseFloat(document.getElementById('stkR'+i).value)); }
+
+function playPhrase(phraseIdx) {
+  stopAll();
+  const textEl = document.querySelector(`#phrases .phrase:nth-child(${phraseIdx+1}) input[type=text]`);
+  const text = textEl.value;
+  const vi   = parseInt(document.getElementById('voiceSelect').value);
+  const vol  = parseFloat(document.getElementById('vol').value);
+
+  const pitches = getStkPitches();
+  const rates   = getStkRates();
+
+  const u = new SpeechSynthesisUtterance(text);
+  if (voices[vi]) u.voice = voices[vi];
+  u.pitch  = stackEnabled ? pitches[0] : 0.00;
+  u.rate   = stackEnabled ? rates[0]   : 0.85;
+  u.volume = vol;
+
+  if (stackEnabled) {
+    const staggerMs = parseInt(document.getElementById('stagger').value);
+    [1, 2].forEach((vi2, i) => {
+      setTimeout(() => postToFrame(i, text, pitches[vi2], rates[vi2]), (i + 1) * staggerMs);
+    });
+  }
+
+  const wordCount = text.split(/\s+/).length;
+  const estMs = Math.max(2000, (wordCount / u.rate) * 1800) + 4000;
+  _autoStopTimer = setTimeout(stopAll, estMs);
+
+  u.onend = () => {
+    if (_autoStopTimer) { clearTimeout(_autoStopTimer); _autoStopTimer = null; }
+  };
+
+  synth.speak(u);
+}
+
+// Build phrase rows
+const container = document.getElementById('phrases');
+PHRASES.forEach((p, idx) => {
+  const row = document.createElement('div');
+  row.className = 'phrase';
+  const lbl = document.createElement('span');
+  lbl.className = 'event-label';
+  lbl.textContent = p.event;
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.value = p.text;
+  const btn = document.createElement('button');
+  btn.className = 'play';
+  btn.textContent = 'Play';
+  btn.onclick = () => playPhrase(idx);
+  row.appendChild(lbl); row.appendChild(inp); row.appendChild(btn);
+  container.appendChild(row);
+});
+
+function copySettings() {
+  const vi = parseInt(document.getElementById('voiceSelect').value);
+  const name = voices[vi] ? voices[vi].name : '?';
+  const pitches = getStkPitches(), rates = getStkRates();
+  const stagger = document.getElementById('stagger').value;
+  const vol = document.getElementById('vol').value;
+  let out = `// Voice: ${name}\n// volume: ${vol}\n`;
+  out += `// voice 1 — pitch: ${pitches[0]}, rate: ${rates[0]}\n`;
+  out += `// voice 2 — pitch: ${pitches[1]}, rate: ${rates[1]}\n`;
+  out += `// voice 3 — pitch: ${pitches[2]}, rate: ${rates[2]}\n`;
+  out += `// stagger: ${stagger}ms`;
+  navigator.clipboard.writeText(out).then(() => alert('Copied!'));
+}
+</script>
+</body>
+</html>

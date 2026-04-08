@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ASTER*IDS — Sound FX Studio</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  width: 100%; min-height: 100%;
+  background: #0c0c0c;
+  color: #ccc;
+  font-family: 'Courier New', monospace;
+}
+header {
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid #1c1c1c;
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+header h1 { font-size: 13px; letter-spacing: 6px; color: #8844CC; font-weight: normal; }
+header span { font-size: 9px; letter-spacing: 4px; color: #3a3a3a; }
+
+section { margin: 22px 20px; }
+.section-heading {
+  font-size: 8px; letter-spacing: 5px; color: #50BAB4;
+  margin-bottom: 14px; padding-bottom: 7px;
+  border-bottom: 1px solid #1a1a1a;
+}
+.card-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+
+/* ── Card ── */
+.card {
+  background: #131313; border: 1px solid #1e1e1e;
+  border-radius: 6px; padding: 13px; width: 218px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.card.playing {
+  border-color: #6060aa;
+  box-shadow: 0 0 10px rgba(100,80,180,0.18);
+}
+.card-name { font-size: 10px; letter-spacing: 3px; color: #eee; margin-bottom: 3px; }
+.card-desc { font-size: 8px; color: #484848; margin-bottom: 11px; line-height: 1.5; letter-spacing: 0.3px; }
+
+/* Play button */
+.btn-play {
+  width: 100%; padding: 7px 0;
+  background: #181818; border: 1px solid #2e2e2e;
+  border-radius: 4px; color: #3CC8A4;
+  font-family: inherit; font-size: 10px; letter-spacing: 3px;
+  cursor: pointer; margin-bottom: 11px;
+  transition: background 0.1s, border-color 0.1s;
+}
+.btn-play:hover { background: #1e1e1e; border-color: #3CC8A4; }
+.btn-play:active { background: #112420; }
+
+/* Waveform */
+.ctrl-label {
+  display: block; font-size: 8px; letter-spacing: 2px;
+  color: #444; margin-top: 9px; margin-bottom: 4px;
+}
+.wave-row { display: flex; gap: 3px; }
+.btn-wave {
+  flex: 1; padding: 4px 0;
+  background: #0c0c0c; border: 1px solid #242424;
+  color: #484848; font-family: inherit; font-size: 8px;
+  cursor: pointer; border-radius: 3px; letter-spacing: 0;
+  transition: background 0.1s;
+}
+.btn-wave.active { background: #180f2c; border-color: #7744bb; color: #aa77ee; }
+
+/* Filter sliders */
+.filter-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.filter-row input[type="range"] {
+  flex: 1; height: 3px;
+  -webkit-appearance: none; appearance: none;
+  background: #222; border-radius: 2px; outline: none; cursor: pointer;
+}
+.filter-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 9px; height: 9px;
+  border-radius: 50%; background: #6868BB; cursor: pointer;
+}
+.filter-val { font-size: 8px; color: #484848; width: 48px; text-align: right; flex-shrink: 0; }
+
+/* Code button */
+.btn-code {
+  width: 100%; margin-top: 11px; padding: 5px 0;
+  background: none; border: 1px solid #1e1e1e;
+  color: #484848; font-family: inherit; font-size: 8px;
+  letter-spacing: 2px; cursor: pointer; border-radius: 3px;
+  transition: border-color 0.1s, color 0.1s;
+}
+.btn-code:hover { border-color: #3a3a3a; color: #888; }
+
+/* ── Modal ── */
+#modal-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.85); z-index: 200;
+  justify-content: center; align-items: center;
+}
+#modal-overlay.open { display: flex; }
+#modal-box {
+  background: #131313; border: 1px solid #333;
+  border-radius: 8px; padding: 20px;
+  width: 90%; max-width: 540px;
+}
+#modal-title { font-size: 9px; letter-spacing: 4px; color: #50BAB4; margin-bottom: 12px; }
+#modal-code {
+  background: #090909; border: 1px solid #222;
+  border-radius: 4px; padding: 13px;
+  font-size: 11px; line-height: 1.8; color: #bbb;
+  white-space: pre; overflow: auto; max-height: 340px;
+  user-select: all; cursor: text;
+}
+.modal-btns { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.modal-btns button {
+  padding: 7px 16px; font-family: inherit;
+  font-size: 9px; letter-spacing: 2px;
+  border-radius: 4px; cursor: pointer;
+}
+#btn-modal-copy { background: #1c1030; border: 1px solid #8844CC; color: #aa77ee; }
+#btn-modal-copy:hover { background: #241440; }
+#btn-modal-close { background: none; border: 1px solid #2a2a2a; color: #666; }
+#btn-modal-close:hover { border-color: #444; color: #999; }
+#copy-feedback {
+  font-size: 8px; color: #3CC8A4; letter-spacing: 2px;
+  opacity: 0; transition: opacity 0.3s; margin-left: 4px;
+}
+#copy-feedback.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>ASTER*IDS</h1>
+  <span>SOUND FX STUDIO</span>
+</header>
+
+<section>
+  <div class="section-heading">HYPERSPACE</div>
+  <div class="card-grid" id="grid-hyp"></div>
+</section>
+<section>
+  <div class="section-heading">LEVEL START</div>
+  <div class="card-grid" id="grid-ls"></div>
+</section>
+<section>
+  <div class="section-heading">LEVEL COMPLETE</div>
+  <div class="card-grid" id="grid-lc"></div>
+</section>
+
+<div id="modal-overlay">
+  <div id="modal-box">
+    <div id="modal-title">CODE</div>
+    <pre id="modal-code"></pre>
+    <div class="modal-btns">
+      <button id="btn-modal-copy">COPY</button>
+      <button id="btn-modal-close">CLOSE</button>
+      <span id="copy-feedback">COPIED!</span>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── NOTE FREQUENCIES (C major) ──────────────────────────────────────────────
+// C3=131  C4=262  E4=330  G4=392
+// C5=523  E5=659  G5=784  C6=1047  E6=1319  G6=1568
+
+// ─── SOUND DEFINITIONS ───────────────────────────────────────────────────────
+// k:'tone'  → { f, dur, gain, delay }   — oscillator (waveform overridden by UI)
+// k:'noise' → { f, dur, gain, Q, delay } — bandpass noise burst (waveform ignored)
+
+const SOUNDS = {
+
+  hyp: [
+    {
+      id: 'hyp1', name: 'CLASSIC', defaultWave: 'sawtooth',
+      desc: 'The original two-tone dive',
+      events: [
+        { k:'tone',  f:200, dur:0.30, gain:0.30,  delay:0.00 },
+        { k:'tone',  f:400, dur:0.20, gain:0.20,  delay:0.15 },
+      ]
+    },
+    {
+      id: 'hyp2', name: 'DEEP DIVE', defaultWave: 'sawtooth',
+      desc: 'Lower, heavier — three-stage plunge',
+      events: [
+        { k:'tone',  f:80,  dur:0.50, gain:0.22,  delay:0.00 },
+        { k:'tone',  f:200, dur:0.35, gain:0.20,  delay:0.12 },
+        { k:'tone',  f:380, dur:0.22, gain:0.14,  delay:0.30 },
+      ]
+    },
+    {
+      id: 'hyp3', name: 'ELECTRIC', defaultWave: 'sawtooth',
+      desc: 'High-to-low voltage discharge',
+      events: [
+        { k:'tone',  f:1200, dur:0.10, gain:0.20, delay:0.00 },
+        { k:'tone',  f:600,  dur:0.15, gain:0.22, delay:0.08 },
+        { k:'tone',  f:300,  dur:0.20, gain:0.22, delay:0.18 },
+        { k:'tone',  f:150,  dur:0.25, gain:0.16, delay:0.30 },
+      ]
+    },
+    {
+      id: 'hyp4', name: 'SHIMMER', defaultWave: 'sawtooth',
+      desc: 'Close-frequency pairs beating together',
+      events: [
+        { k:'tone',  f:196, dur:0.45, gain:0.16, delay:0.00 },
+        { k:'tone',  f:204, dur:0.45, gain:0.16, delay:0.00 },
+        { k:'tone',  f:392, dur:0.28, gain:0.12, delay:0.28 },
+        { k:'tone',  f:408, dur:0.28, gain:0.12, delay:0.28 },
+      ]
+    },
+    {
+      id: 'hyp5', name: 'QUANTUM', defaultWave: 'sawtooth',
+      desc: 'Rapid ascending frequency ladder',
+      events: [
+        { k:'tone',  f:100,  dur:0.12, gain:0.16, delay:0.00 },
+        { k:'tone',  f:200,  dur:0.12, gain:0.16, delay:0.10 },
+        { k:'tone',  f:400,  dur:0.12, gain:0.16, delay:0.20 },
+        { k:'tone',  f:800,  dur:0.12, gain:0.15, delay:0.30 },
+        { k:'tone',  f:1600, dur:0.14, gain:0.12, delay:0.40 },
+      ]
+    },
+    {
+      id: 'hyp6', name: 'VOID PULSE', defaultWave: 'sawtooth',
+      desc: 'Bass noise thump then tone sweep',
+      events: [
+        { k:'noise', f:60,  dur:0.25, gain:0.55, Q:0.8,  delay:0.00 },
+        { k:'tone',  f:200, dur:0.30, gain:0.22,         delay:0.05 },
+        { k:'tone',  f:350, dur:0.22, gain:0.16,         delay:0.20 },
+      ]
+    },
+  ],
+
+  ls: [
+    {
+      id: 'ls1', name: 'CLASSIC', defaultWave: 'square',
+      desc: 'Original ascending C-major run + chord',
+      events: [
+        { k:'tone', f:262,  dur:0.10, gain:0.065, delay:0.00 },
+        { k:'tone', f:330,  dur:0.10, gain:0.065, delay:0.10 },
+        { k:'tone', f:392,  dur:0.10, gain:0.065, delay:0.20 },
+        { k:'tone', f:523,  dur:0.10, gain:0.065, delay:0.30 },
+        { k:'tone', f:659,  dur:0.10, gain:0.065, delay:0.42 },
+        { k:'tone', f:784,  dur:0.10, gain:0.065, delay:0.52 },
+        { k:'tone', f:1047, dur:0.10, gain:0.065, delay:0.64 },
+        { k:'tone', f:523,  dur:0.07, gain:0.20,  delay:0.82 },
+        { k:'tone', f:659,  dur:0.07, gain:0.20,  delay:0.82 },
+        { k:'tone', f:784,  dur:0.07, gain:0.20,  delay:0.82 },
+      ]
+    },
+    {
+      id: 'ls2', name: 'MARCH', defaultWave: 'square',
+      desc: 'Military double-time entry + open chord',
+      events: [
+        { k:'tone', f:523,  dur:0.08, gain:0.08, delay:0.00 },
+        { k:'tone', f:523,  dur:0.08, gain:0.06, delay:0.10 },
+        { k:'tone', f:659,  dur:0.09, gain:0.08, delay:0.22 },
+        { k:'tone', f:784,  dur:0.09, gain:0.08, delay:0.34 },
+        { k:'tone', f:1047, dur:0.10, gain:0.09, delay:0.48 },
+        { k:'tone', f:1047, dur:0.10, gain:0.07, delay:0.60 },
+        { k:'tone', f:523,  dur:0.28, gain:0.14, delay:0.76 },
+        { k:'tone', f:659,  dur:0.28, gain:0.14, delay:0.76 },
+        { k:'tone', f:784,  dur:0.28, gain:0.14, delay:0.76 },
+      ]
+    },
+    {
+      id: 'ls3', name: 'BLITZ', defaultWave: 'square',
+      desc: 'Same run at double speed — urgent',
+      events: [
+        { k:'tone', f:262,  dur:0.06, gain:0.07, delay:0.00 },
+        { k:'tone', f:330,  dur:0.06, gain:0.07, delay:0.05 },
+        { k:'tone', f:392,  dur:0.06, gain:0.07, delay:0.10 },
+        { k:'tone', f:523,  dur:0.06, gain:0.07, delay:0.15 },
+        { k:'tone', f:659,  dur:0.06, gain:0.07, delay:0.21 },
+        { k:'tone', f:784,  dur:0.06, gain:0.07, delay:0.26 },
+        { k:'tone', f:1047, dur:0.06, gain:0.07, delay:0.32 },
+        { k:'tone', f:523,  dur:0.20, gain:0.22, delay:0.42 },
+        { k:'tone', f:659,  dur:0.20, gain:0.22, delay:0.42 },
+        { k:'tone', f:784,  dur:0.20, gain:0.22, delay:0.42 },
+      ]
+    },
+    {
+      id: 'ls4', name: 'POWER CHORD', defaultWave: 'square',
+      desc: 'Staggered entry, full chord lands hard',
+      events: [
+        { k:'tone', f:262,  dur:0.14, gain:0.07, delay:0.00 },
+        { k:'tone', f:392,  dur:0.14, gain:0.07, delay:0.03 },
+        { k:'tone', f:523,  dur:0.14, gain:0.07, delay:0.06 },
+        { k:'tone', f:659,  dur:0.14, gain:0.07, delay:0.09 },
+        { k:'tone', f:784,  dur:0.14, gain:0.07, delay:0.12 },
+        { k:'tone', f:1047, dur:0.30, gain:0.12, delay:0.18 },
+        { k:'tone', f:523,  dur:0.30, gain:0.10, delay:0.18 },
+        { k:'tone', f:659,  dur:0.30, gain:0.10, delay:0.18 },
+      ]
+    },
+    {
+      id: 'ls5', name: 'BOUNCY', defaultWave: 'square',
+      desc: 'Alternating low/high octaves — playful',
+      events: [
+        { k:'tone', f:262,  dur:0.08, gain:0.07, delay:0.00 },
+        { k:'tone', f:1047, dur:0.08, gain:0.07, delay:0.10 },
+        { k:'tone', f:330,  dur:0.08, gain:0.07, delay:0.20 },
+        { k:'tone', f:1319, dur:0.08, gain:0.07, delay:0.30 },
+        { k:'tone', f:392,  dur:0.08, gain:0.07, delay:0.40 },
+        { k:'tone', f:784,  dur:0.08, gain:0.07, delay:0.50 },
+        { k:'tone', f:523,  dur:0.28, gain:0.14, delay:0.62 },
+        { k:'tone', f:659,  dur:0.28, gain:0.14, delay:0.62 },
+        { k:'tone', f:1047, dur:0.28, gain:0.14, delay:0.62 },
+      ]
+    },
+    {
+      id: 'ls6', name: 'REVEILLE', defaultWave: 'square',
+      desc: 'Bugle-call shape — C5 up and back',
+      events: [
+        { k:'tone', f:523,  dur:0.10, gain:0.08, delay:0.00 },
+        { k:'tone', f:659,  dur:0.10, gain:0.08, delay:0.12 },
+        { k:'tone', f:784,  dur:0.10, gain:0.08, delay:0.24 },
+        { k:'tone', f:1047, dur:0.12, gain:0.09, delay:0.38 },
+        { k:'tone', f:784,  dur:0.10, gain:0.08, delay:0.52 },
+        { k:'tone', f:659,  dur:0.10, gain:0.08, delay:0.64 },
+        { k:'tone', f:523,  dur:0.10, gain:0.08, delay:0.76 },
+        { k:'tone', f:523,  dur:0.28, gain:0.18, delay:0.92 },
+        { k:'tone', f:659,  dur:0.28, gain:0.18, delay:0.92 },
+        { k:'tone', f:784,  dur:0.28, gain:0.18, delay:0.92 },
+      ]
+    },
+    {
+      id: 'ls7', name: 'CASCADE', defaultWave: 'square',
+      desc: 'Long notes overlap as they ascend',
+      events: [
+        { k:'tone', f:262,  dur:0.40, gain:0.06, delay:0.00 },
+        { k:'tone', f:392,  dur:0.36, gain:0.06, delay:0.16 },
+        { k:'tone', f:523,  dur:0.32, gain:0.07, delay:0.32 },
+        { k:'tone', f:659,  dur:0.28, gain:0.07, delay:0.46 },
+        { k:'tone', f:784,  dur:0.28, gain:0.08, delay:0.60 },
+        { k:'tone', f:1047, dur:0.35, gain:0.10, delay:0.74 },
+        { k:'tone', f:523,  dur:0.28, gain:0.14, delay:0.74 },
+        { k:'tone', f:659,  dur:0.28, gain:0.14, delay:0.74 },
+      ]
+    },
+    {
+      id: 'ls8', name: 'STACCATO', defaultWave: 'square',
+      desc: 'Very short punchy notes — snappy',
+      events: [
+        { k:'tone', f:262,  dur:0.05, gain:0.10, delay:0.00 },
+        { k:'tone', f:330,  dur:0.05, gain:0.10, delay:0.07 },
+        { k:'tone', f:392,  dur:0.05, gain:0.10, delay:0.14 },
+        { k:'tone', f:523,  dur:0.05, gain:0.10, delay:0.21 },
+        { k:'tone', f:659,  dur:0.05, gain:0.10, delay:0.28 },
+        { k:'tone', f:784,  dur:0.05, gain:0.10, delay:0.35 },
+        { k:'tone', f:1047, dur:0.05, gain:0.10, delay:0.42 },
+        { k:'tone', f:523,  dur:0.18, gain:0.22, delay:0.54 },
+        { k:'tone', f:659,  dur:0.18, gain:0.22, delay:0.54 },
+        { k:'tone', f:784,  dur:0.18, gain:0.22, delay:0.54 },
+        { k:'tone', f:1047, dur:0.18, gain:0.22, delay:0.54 },
+      ]
+    },
+  ],
+
+  lc: [
+    {
+      id: 'lc1', name: 'CLASSIC', defaultWave: 'square',
+      desc: 'Original triumphant ascending run + chord',
+      events: [
+        { k:'tone', f:523,  dur:0.09, gain:0.0184, delay:0.00 },
+        { k:'tone', f:659,  dur:0.09, gain:0.0184, delay:0.08 },
+        { k:'tone', f:784,  dur:0.09, gain:0.0184, delay:0.16 },
+        { k:'tone', f:1047, dur:0.09, gain:0.0184, delay:0.26 },
+        { k:'tone', f:1319, dur:0.09, gain:0.0184, delay:0.38 },
+        { k:'tone', f:523,  dur:0.225, gain:0.0563, delay:0.52 },
+        { k:'tone', f:659,  dur:0.225, gain:0.0563, delay:0.52 },
+        { k:'tone', f:1047, dur:0.225, gain:0.0563, delay:0.52 },
+        { k:'tone', f:1319, dur:0.225, gain:0.0563, delay:0.52 },
+      ]
+    },
+    {
+      id: 'lc2', name: 'VICTORY ROLL', defaultWave: 'square',
+      desc: 'Two runs — second higher — then big chord',
+      events: [
+        { k:'tone', f:523,  dur:0.07, gain:0.05, delay:0.00 },
+        { k:'tone', f:659,  dur:0.07, gain:0.05, delay:0.06 },
+        { k:'tone', f:784,  dur:0.07, gain:0.05, delay:0.12 },
+        { k:'tone', f:1047, dur:0.07, gain:0.05, delay:0.18 },
+        { k:'tone', f:659,  dur:0.07, gain:0.06, delay:0.30 },
+        { k:'tone', f:784,  dur:0.07, gain:0.06, delay:0.36 },
+        { k:'tone', f:1047, dur:0.07, gain:0.06, delay:0.42 },
+        { k:'tone', f:1319, dur:0.07, gain:0.06, delay:0.48 },
+        { k:'tone', f:523,  dur:0.35, gain:0.12, delay:0.62 },
+        { k:'tone', f:659,  dur:0.35, gain:0.12, delay:0.62 },
+        { k:'tone', f:784,  dur:0.35, gain:0.12, delay:0.62 },
+        { k:'tone', f:1047, dur:0.35, gain:0.12, delay:0.62 },
+        { k:'tone', f:1319, dur:0.35, gain:0.12, delay:0.62 },
+      ]
+    },
+    {
+      id: 'lc3', name: 'PUNCH', defaultWave: 'square',
+      desc: 'Three quick hits then a sustained chord',
+      events: [
+        { k:'tone', f:523,  dur:0.06, gain:0.12, delay:0.00 },
+        { k:'tone', f:784,  dur:0.06, gain:0.12, delay:0.10 },
+        { k:'tone', f:1047, dur:0.06, gain:0.12, delay:0.20 },
+        { k:'tone', f:523,  dur:0.40, gain:0.14, delay:0.36 },
+        { k:'tone', f:659,  dur:0.40, gain:0.14, delay:0.36 },
+        { k:'tone', f:784,  dur:0.40, gain:0.14, delay:0.36 },
+        { k:'tone', f:1047, dur:0.40, gain:0.14, delay:0.36 },
+      ]
+    },
+    {
+      id: 'lc4', name: 'ARPEGGIO', defaultWave: 'square',
+      desc: 'Slow notes, each held long — stately',
+      events: [
+        { k:'tone', f:523,  dur:0.42, gain:0.07, delay:0.00 },
+        { k:'tone', f:659,  dur:0.38, gain:0.07, delay:0.18 },
+        { k:'tone', f:784,  dur:0.34, gain:0.07, delay:0.36 },
+        { k:'tone', f:1047, dur:0.30, gain:0.07, delay:0.56 },
+        { k:'tone', f:1319, dur:0.38, gain:0.10, delay:0.76 },
+        { k:'tone', f:523,  dur:0.30, gain:0.10, delay:0.76 },
+        { k:'tone', f:784,  dur:0.30, gain:0.10, delay:0.76 },
+      ]
+    },
+    {
+      id: 'lc5', name: 'FANFARE', defaultWave: 'square',
+      desc: 'Bass root held, run above it — brass style',
+      events: [
+        { k:'tone', f:262,  dur:0.55, gain:0.07, delay:0.00 },
+        { k:'tone', f:392,  dur:0.55, gain:0.07, delay:0.02 },
+        { k:'tone', f:523,  dur:0.08, gain:0.06, delay:0.00 },
+        { k:'tone', f:523,  dur:0.08, gain:0.06, delay:0.10 },
+        { k:'tone', f:659,  dur:0.08, gain:0.06, delay:0.20 },
+        { k:'tone', f:784,  dur:0.08, gain:0.06, delay:0.32 },
+        { k:'tone', f:1047, dur:0.08, gain:0.07, delay:0.44 },
+        { k:'tone', f:1319, dur:0.32, gain:0.10, delay:0.58 },
+        { k:'tone', f:523,  dur:0.32, gain:0.10, delay:0.58 },
+        { k:'tone', f:784,  dur:0.32, gain:0.10, delay:0.58 },
+      ]
+    },
+    {
+      id: 'lc6', name: 'JINGLE', defaultWave: 'square',
+      desc: 'Descend then ascend higher — cheerful',
+      events: [
+        { k:'tone', f:1047, dur:0.07, gain:0.07, delay:0.00 },
+        { k:'tone', f:784,  dur:0.07, gain:0.07, delay:0.07 },
+        { k:'tone', f:659,  dur:0.07, gain:0.07, delay:0.14 },
+        { k:'tone', f:784,  dur:0.07, gain:0.07, delay:0.21 },
+        { k:'tone', f:1047, dur:0.07, gain:0.07, delay:0.28 },
+        { k:'tone', f:1319, dur:0.07, gain:0.07, delay:0.35 },
+        { k:'tone', f:1047, dur:0.07, gain:0.07, delay:0.42 },
+        { k:'tone', f:523,  dur:0.28, gain:0.12, delay:0.54 },
+        { k:'tone', f:659,  dur:0.28, gain:0.12, delay:0.54 },
+        { k:'tone', f:1047, dur:0.28, gain:0.12, delay:0.54 },
+      ]
+    },
+    {
+      id: 'lc7', name: 'MAJESTIC', defaultWave: 'square',
+      desc: 'Wide spread C3 to E6 — grandiose',
+      events: [
+        { k:'tone', f:131,  dur:0.55, gain:0.06, delay:0.00 },
+        { k:'tone', f:392,  dur:0.50, gain:0.06, delay:0.04 },
+        { k:'tone', f:523,  dur:0.08, gain:0.06, delay:0.10 },
+        { k:'tone', f:659,  dur:0.08, gain:0.06, delay:0.20 },
+        { k:'tone', f:784,  dur:0.08, gain:0.06, delay:0.32 },
+        { k:'tone', f:1047, dur:0.08, gain:0.07, delay:0.44 },
+        { k:'tone', f:1319, dur:0.35, gain:0.14, delay:0.60 },
+        { k:'tone', f:523,  dur:0.35, gain:0.10, delay:0.60 },
+        { k:'tone', f:784,  dur:0.35, gain:0.10, delay:0.60 },
+        { k:'tone', f:131,  dur:0.35, gain:0.10, delay:0.60 },
+      ]
+    },
+    {
+      id: 'lc8', name: 'TRIUMPHAL', defaultWave: 'square',
+      desc: 'Chord voices enter one by one, stacking up',
+      events: [
+        { k:'tone', f:523,  dur:0.08, gain:0.07, delay:0.00 },
+        { k:'tone', f:659,  dur:0.08, gain:0.07, delay:0.10 },
+        { k:'tone', f:784,  dur:0.08, gain:0.07, delay:0.20 },
+        { k:'tone', f:1047, dur:0.08, gain:0.07, delay:0.32 },
+        { k:'tone', f:523,  dur:0.45, gain:0.06, delay:0.46 },
+        { k:'tone', f:659,  dur:0.40, gain:0.08, delay:0.52 },
+        { k:'tone', f:784,  dur:0.36, gain:0.08, delay:0.58 },
+        { k:'tone', f:1047, dur:0.32, gain:0.10, delay:0.64 },
+        { k:'tone', f:1319, dur:0.30, gain:0.12, delay:0.70 },
+      ]
+    },
+  ],
+};
+
+// ─── STATE (per card: wave, hpFreq, lpFreq) ───────────────────────────────────
+const STATE = {};
+
+// ─── AUDIO ────────────────────────────────────────────────────────────────────
+let ac = null;
+function getAC() {
+  if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+  if (ac.state === 'suspended') ac.resume();
+  return ac;
+}
+
+function playSound(sound, wave, hpFreq, lpFreq) {
+  const a = getAC();
+
+  // Build shared filter chain for this playback
+  const hp = a.createBiquadFilter();
+  hp.type = 'highpass'; hp.frequency.value = hpFreq; hp.Q.value = 0.5;
+  const lp = a.createBiquadFilter();
+  lp.type = 'lowpass';  lp.frequency.value = lpFreq; lp.Q.value = 0.5;
+  hp.connect(lp); lp.connect(a.destination);
+
+  sound.events.forEach(ev => {
+    if (ev.k === 'tone') {
+      const o = a.createOscillator();
+      const g = a.createGain();
+      o.type = wave;
+      o.frequency.value = ev.f;
+      const t = a.currentTime + (ev.delay || 0);
+      g.gain.setValueAtTime(ev.gain, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + ev.dur);
+      o.connect(g); g.connect(hp);
+      o.start(t); o.stop(t + ev.dur + 0.05);
+    } else if (ev.k === 'noise') {
+      const secs = ev.dur;
+      const buf = a.createBuffer(1, Math.ceil(a.sampleRate * secs), a.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random()*2-1) * (1 - i/d.length);
+      const src = a.createBufferSource(); src.buffer = buf;
+      const bp = a.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = ev.f; bp.Q.value = ev.Q || 1.5;
+      const g = a.createGain(); g.gain.value = ev.gain;
+      src.connect(bp); bp.connect(g); g.connect(hp);
+      src.start(a.currentTime + (ev.delay || 0));
+    }
+  });
+}
+
+// ─── CODE GENERATION ──────────────────────────────────────────────────────────
+function n2s(n) {
+  // Clean number → string: drop unnecessary trailing zeros
+  return parseFloat(n.toPrecision(6)).toString();
+}
+
+function generateCode(sound, wave, hpFreq, lpFreq) {
+  const lines = [];
+  const useHP = hpFreq > 25;
+  const useLP = lpFreq < 19000;
+
+  if (useHP || useLP) {
+    lines.push('// Filters active — HP: ' + Math.round(hpFreq) + ' Hz  LP: ' + Math.round(lpFreq) + ' Hz');
+    lines.push('// A filter-aware wrapper will be needed in the game.');
+    lines.push('');
+  }
+
+  sound.events.forEach(ev => {
+    if (ev.k === 'tone') {
+      const delay = ev.delay > 0 ? ', ' + n2s(ev.delay) : '';
+      lines.push(`tone(${ev.f}, '${wave}', ${n2s(ev.dur)}, ${n2s(ev.gain)}${delay});`);
+    } else if (ev.k === 'noise') {
+      const q = ev.Q !== undefined ? ', ' + n2s(ev.Q) : '';
+      lines.push(`noiseBurst(${ev.f}, ${n2s(ev.dur)}, ${n2s(ev.gain)}${q});`);
+      if ((ev.delay || 0) > 0)
+        lines[lines.length-1] = '// delay: ' + n2s(ev.delay) + 's — wrap in setTimeout if needed\n' + lines[lines.length-1];
+    }
+  });
+
+  return lines.join('\n');
+}
+
+// ─── UI BUILDING ──────────────────────────────────────────────────────────────
+const WAVES = ['sine', 'square', 'sawtooth', 'triangle'];
+const WAVE_LABELS = { sine:'SIN', square:'SQR', sawtooth:'SAW', triangle:'TRI' };
+
+function buildCard(sound) {
+  STATE[sound.id] = { wave: sound.defaultWave, hpFreq: 20, lpFreq: 20000 };
+
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.id = 'card-' + sound.id;
+
+  card.innerHTML = `
+    <div class="card-name">${sound.name}</div>
+    <div class="card-desc">${sound.desc}</div>
+    <button class="btn-play" data-id="${sound.id}">▶  PLAY</button>
+
+    <span class="ctrl-label">WAVEFORM</span>
+    <div class="wave-row" id="waves-${sound.id}">
+      ${WAVES.map(w => `<button class="btn-wave${w === sound.defaultWave ? ' active' : ''}" data-id="${sound.id}" data-wave="${w}">${WAVE_LABELS[w]}</button>`).join('')}
+    </div>
+
+    <span class="ctrl-label">HI-PASS FILTER</span>
+    <div class="filter-row">
+      <input type="range" id="hp-${sound.id}" min="20" max="2000" step="10" value="20">
+      <span class="filter-val" id="hpval-${sound.id}">OFF</span>
+    </div>
+
+    <span class="ctrl-label">LO-PASS FILTER</span>
+    <div class="filter-row">
+      <input type="range" id="lp-${sound.id}" min="1000" max="20000" step="100" value="20000">
+      <span class="filter-val" id="lpval-${sound.id}">OFF</span>
+    </div>
+
+    <button class="btn-code" data-id="${sound.id}">{ } GET CODE</button>
+  `;
+
+  return card;
+}
+
+function buildSection(groupKey, containerId) {
+  const container = document.getElementById(containerId);
+  SOUNDS[groupKey].forEach(sound => container.appendChild(buildCard(sound)));
+}
+
+// ─── EVENT DELEGATION ─────────────────────────────────────────────────────────
+// Flat map for quick lookup
+const ALL_SOUNDS = {};
+Object.values(SOUNDS).forEach(arr => arr.forEach(s => ALL_SOUNDS[s.id] = s));
+
+let _playingCardId = null;
+
+document.body.addEventListener('click', e => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+
+  // Play
+  if (btn.classList.contains('btn-play')) {
+    const id = btn.dataset.id;
+    const s = STATE[id];
+    if (_playingCardId) document.getElementById('card-' + _playingCardId)?.classList.remove('playing');
+    _playingCardId = id;
+    document.getElementById('card-' + id).classList.add('playing');
+    playSound(ALL_SOUNDS[id], s.wave, s.hpFreq, s.lpFreq);
+    // Remove playing highlight after sound finishes (~1.5s generous buffer)
+    const maxDelay = Math.max(...ALL_SOUNDS[id].events.map(ev => (ev.delay||0) + ev.dur));
+    setTimeout(() => {
+      if (_playingCardId === id) {
+        document.getElementById('card-' + id)?.classList.remove('playing');
+        _playingCardId = null;
+      }
+    }, (maxDelay + 0.3) * 1000);
+  }
+
+  // Waveform
+  if (btn.classList.contains('btn-wave')) {
+    const id = btn.dataset.id;
+    STATE[id].wave = btn.dataset.wave;
+    document.querySelectorAll(`#waves-${id} .btn-wave`).forEach(b => b.classList.toggle('active', b === btn));
+  }
+
+  // Code
+  if (btn.classList.contains('btn-code')) {
+    const id = btn.dataset.id;
+    const s = STATE[id];
+    const sound = ALL_SOUNDS[id];
+    document.getElementById('modal-title').textContent = sound.name + '  —  CODE';
+    document.getElementById('modal-code').textContent = generateCode(sound, s.wave, s.hpFreq, s.lpFreq);
+    document.getElementById('modal-overlay').classList.add('open');
+  }
+
+  // Modal copy
+  if (btn.id === 'btn-modal-copy') {
+    const code = document.getElementById('modal-code').textContent;
+    navigator.clipboard.writeText(code).then(() => {
+      const fb = document.getElementById('copy-feedback');
+      fb.classList.add('show');
+      setTimeout(() => fb.classList.remove('show'), 1600);
+    });
+  }
+
+  // Modal close
+  if (btn.id === 'btn-modal-close') {
+    document.getElementById('modal-overlay').classList.remove('open');
+  }
+});
+
+// Close modal on overlay click
+document.getElementById('modal-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('modal-overlay'))
+    document.getElementById('modal-overlay').classList.remove('open');
+});
+
+// Filter sliders
+document.body.addEventListener('input', e => {
+  const el = e.target;
+  if (el.tagName !== 'INPUT' || el.type !== 'range') return;
+
+  const isHP = el.id.startsWith('hp-');
+  const id = el.id.slice(3);
+  const val = +el.value;
+
+  if (isHP) {
+    STATE[id].hpFreq = val;
+    document.getElementById('hpval-' + id).textContent = val <= 20 ? 'OFF' : val + ' Hz';
+  } else {
+    STATE[id].lpFreq = val;
+    document.getElementById('lpval-' + id).textContent = val >= 20000 ? 'OFF' : val + ' Hz';
+  }
+});
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+buildSection('hyp', 'grid-hyp');
+buildSection('ls',  'grid-ls');
+buildSection('lc',  'grid-lc');
+</script>
+</body>
+</html>

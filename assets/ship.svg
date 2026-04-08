@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-16 -22 32 40" width="160" height="200" style="background:#0d0d0d">
+  <!-- Main hull: nose(0,-18) → right(11,13) → rear notch(0,7) → left(-11,13) -->
+  <polygon points="0,-18 11,13 0,7 -11,13"
+    fill="none" stroke="#ffffff" stroke-width="0.8" stroke-linejoin="round"/>
+</svg>
