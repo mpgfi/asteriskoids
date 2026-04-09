@@ -537,9 +537,9 @@ const SFX = {
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.072);
     o.start(t + 0.010); o.stop(t + 0.09);
   } catch(e) {} },
-  bigBoom:() => { noiseBurst(55,  0.8, 2.0, 1.2); noiseBurst(38, 0.6, 1.40, 0.8); },
-  medBoom:() => noiseBurst(100, 0.5, 1.40, 1.2),
-  smlBoom:() => noiseBurst(180, 0.3, 1.00, 1.5),
+  bigBoom:() => { const r=0.75+Math.random()*0.5; noiseBurst(55*r,  0.8, 2.0, 1.2); noiseBurst(38*r, 0.6, 1.40, 0.8); },
+  medBoom:() => { const r=0.75+Math.random()*0.5; noiseBurst(100*r, 0.5, 1.40, 1.2); },
+  smlBoom:() => { const r=0.75+Math.random()*0.5; noiseBurst(180*r, 0.3, 1.00, 1.5); },
   die:    () => { [0,80,160,240,350].forEach(ms => setTimeout(() => noiseBurst(55 + Math.random()*40, 0.4, 1.20, 1), ms)); },
   life:   () => { [880,1100,1320].forEach((f,i)=>tone(f,'sine',0.3,0.4,i*0.12)); },
   comboBoop: () => { try {
@@ -1915,9 +1915,23 @@ function startMusic() {
   _musicTick();
 }
 
+function fadeTitleMusic(targetVol, durationMs) {
+  if (!_titleAudio) return;
+  const steps = Math.round(durationMs / 20);
+  const startVol = _titleAudio.volume;
+  let step = 0;
+  const fade = setInterval(() => {
+    step++;
+    _titleAudio.volume = Math.max(0, Math.min(1, startVol + (targetVol - startVol) * step / steps));
+    if (step >= steps) { clearInterval(fade); _titleAudio.volume = targetVol; }
+  }, 20);
+}
+
 function stopMusic() {
   _ml.running = false;
   clearTimeout(_ml.timer);
+  // Fade music down to 10% in-game — keeps playing quietly under gameplay
+  // (music fade-down is triggered on spacebar press, not here)
 }
 
 function playLevelClearFanfare() {
@@ -2022,6 +2036,7 @@ let combo = 0;       // kill-streak bonus multiplier 0.00–2.00
 let comboTmr = 0;    // frames of 2-s hold before rapid countdown to zero
 let comboZeroAnim = 0;  // shrink-to-nothing animation frames (15 total) on combo loss
 let _musicOn = true;    // M key toggle for attract music
+let _titleAudio = null; // MP3 title music player
 let shieldPod = null, shieldPodTmr = 1200 + Math.random() * 600;
 let mammoth = null;                          // mammoth asteroid (one at a time)
 let mammothSpawnTmr = 7200;                  // first spawn at ~2 min after L6 reached
@@ -2054,12 +2069,12 @@ function mkAsteroid(x, y, size) {
     const r = R*(0.6 + Math.random()*0.75);
     return [Math.cos(a)*r, Math.sin(a)*r];
   });
-  const spd = Math.max(0.55, ((0.5 + Math.random()*0.8) * (4-size) * 0.55 + 0.2) * 0.75 * 0.9 * Math.pow(0.95, level - 1));
+  const spd = Math.max(0.55, ((0.5 + Math.random()*0.8) * (4-size) * 0.55 + 0.2) * 0.75 * 0.9 * 1.1 * Math.pow(0.95, level - 1));
   const dir = Math.random()*Math.PI*2;
   return {
     x, y,
     vx: Math.cos(dir)*spd, vy: Math.sin(dir)*spd,
-    rot: 0, rotV: (Math.random()-0.5)*0.05625 * Math.pow(1.3, 3 - size),
+    rot: 0, rotV: (Math.random()-0.5)*0.0675 * Math.pow(1.3, 3 - size),
     size, pts, r: R*0.78, color: rndColor(),
   };
 }
@@ -2103,7 +2118,8 @@ function mkUFO() {
     type = 'big';
   }
   const big = type === 'big';
-  const spd = type === 'alien' ? 2.0 : 1.44;
+  const spd = type === 'alien' ? 1.5 : 1.44;
+  const maxHp = type === 'alien' ? 10 : 5;
   const x = side, y = 90 + Math.random() * (H - 180);
   const sx = ship && ship.alive ? ship.x : W / 2;
   const sy = ship && ship.alive ? ship.y : H / 2;
@@ -2116,6 +2132,7 @@ function mkUFO() {
     sinePhase: Math.random() * Math.PI * 2,
     color: '#ffffff',
     trail: [],
+    hp: maxHp, maxHp, hitFlashTmr: 0, hitJitterTmr: 0,
     ...(type === 'alien' ? {
       spiralAngle:  Math.atan2(y - sy, x - sx),
       spiralRadius: Math.hypot(x - sx, y - sy),
@@ -2126,8 +2143,7 @@ function mkUFO() {
 
 function mkMissile(x, y, tx, ty) {
   const angle = Math.atan2(ty - y, tx - x);
-  const spd = 1.5;
-  return { x, y, vx: Math.cos(angle) * spd, vy: Math.sin(angle) * spd, angle, r: 8, life: 720 };
+  return { x, y, vx: Math.cos(angle) * 0.4, vy: Math.sin(angle) * 0.4, angle, r: 8, life: 720 };
 }
 
 function spawnUpgradePod() {
@@ -2343,12 +2359,23 @@ function spawnLevel() {
 // ============================================================
 function startAttractCycle() {
   resetPalette();
-  if (!_ml.running) {
-    const trk = MUSIC_TRACKS[_musicTrackIdx % MUSIC_TRACKS.length];
-    _musicTrackIdx++;
-    _ml.evts = trk.evts; _ml.beats = trk.beats; _ml.bps = trk.bps;
-    startMusic();
+  // ── MP3 title music ──────────────────────────────────────────────────────
+  if (_musicOn) {
+    if (!_titleAudio) {
+      _titleAudio = new Audio('aurolab_love_obsession.mp3');
+      _titleAudio.loop = true;
+      _titleAudio.volume = 0;
+    }
+    if (_titleAudio.paused) { _titleAudio.play().catch(() => {}); }
+    fadeTitleMusic(0.4, 800); // fade up to title volume
   }
+  // ── Original procedural title music (Clair de Lune) — kept for easy restore ──
+  // if (!_ml.running) {
+  //   const trk = MUSIC_TRACKS[_musicTrackIdx % MUSIC_TRACKS.length];
+  //   _musicTrackIdx++;
+  //   _ml.evts = trk.evts; _ml.beats = trk.beats; _ml.bps = trk.bps;
+  //   startMusic();
+  // }
   clearTimeout(attractTmr);
   // title (10 s) → hiscores (5 s) → globalscores (5 s) → attract gameplay (10 s) → repeat
   attractTmr = setTimeout(() => {
@@ -2526,8 +2553,7 @@ function update() {
       for (let ai=asteroids.length-1;ai>=0;ai--) {
         const a=asteroids[ai];
         if (hitCircleWrapped(b, a.x, a.y, a.r)) {
-          burst(a.x,a.y,8+a.size*5,2+a.size,a.color);
-          spawnRings(a.x,a.y,a.r,a.color,a.vx,a.vy);
+          burst(a.x,a.y,4*(8+a.size*5),2+a.size,a.color);
           if (a.size>1) {
             const off=a.r*0.4;
             asteroids.push(mkAsteroid(a.x+(Math.random()-.5)*off,a.y+(Math.random()-.5)*off,a.size-1));
@@ -2564,9 +2590,9 @@ function update() {
   if (ship.alive) {
     // Rotation: accelerate while key held, quick decel (~0.2 s) on release
     const rotL = !!keys['ArrowLeft'], rotR = !!keys['ArrowRight'];
-    if (rotL) ship.angleVel -= 0.0045;
-    if (rotR) ship.angleVel += 0.0045;
-    ship.angleVel = Math.max(-0.08, Math.min(0.08, ship.angleVel));
+    if (rotL) ship.angleVel -= 0.0054;
+    if (rotR) ship.angleVel += 0.0054;
+    ship.angleVel = Math.max(-0.096, Math.min(0.096, ship.angleVel));
     if (!rotL && !rotR) ship.angleVel *= 0.878;    // decel to ~2% in 30 frames (~0.5 s)
     ship.angle += ship.angleVel;
     ship.thrusting = !!keys['ArrowUp'];
@@ -2621,7 +2647,7 @@ function update() {
     }
     if (firing && fireTmr <= 0 && heatCutoutTmr === 0) {
       const fa  = ship.angle - Math.PI/2;
-      const spd = 16.2;
+      const spd = 19.44;
       if (hyperUpgradeActive && hyperUpgradeTmr > 0) {
         // Five simultaneous streams at -10, -5, 0, +5, +10 degrees
         [-10, -5, 0, 5, 10].forEach(deg => {
@@ -2677,7 +2703,7 @@ function update() {
 
   // ── Asteroids ──
   asteroids.forEach(a => { a.x+=a.vx; a.y+=a.vy; a.rot+=a.rotV; });
-  const escapingAllowed = asteroids.length <= 3 && !ufo && !mammoth && !upgradePod && !hyperUpgradePod && !shieldPod;
+  const escapingAllowed = asteroids.length <= 3 && !ufo && !mammoth;
   if (escapingAllowed) {
     asteroids.forEach(a => a.escaping = true);
     asteroids = asteroids.filter(a => a.x > -a.r*2 && a.x < W+a.r*2 && a.y > -a.r*2 && a.y < H+a.r*2);
@@ -2722,6 +2748,8 @@ function update() {
       if (ufo.trail.length > 5) ufo.trail.shift();
     }
     ufo.x += ufo.vx; ufo.y += ufo.vy;
+    if (ufo.hitFlashTmr > 0) ufo.hitFlashTmr--;
+    if (ufo.hitJitterTmr > 0) ufo.hitJitterTmr--;
     if (ufo.type === 'alien') {
       // Shrinking spiral centered on player — tightens until minimum radius
       ufo.spiralAngle  += ufo.spiralOmega;
@@ -2751,12 +2779,7 @@ function update() {
         SFX.whoosh();
         ufo.fireTmr = 220;
       } else {
-        // Alien fires aimed bullet with spread
-        const spread = (Math.random() - 0.5) * 0.45;
-        const aim = Math.atan2(ship.y - ufo.y, ship.x - ufo.x) + spread;
-        const bspd = 1.65 + level * 0.15;
-        bullets.push({ x:ufo.x, y:ufo.y, vx:Math.cos(aim)*bspd, vy:Math.sin(aim)*bspd, life:70, own:'ufo' });
-        tone(800, 'square', 0.06, 0.12);
+        // Alien does not fire — threat is proximity only
         ufo.fireTmr = 55;
       }
     }
@@ -2773,9 +2796,11 @@ function update() {
     let da = Math.atan2(ty - m.y, tx - m.x) - m.angle;
     while (da >  Math.PI) da -= Math.PI * 2;
     while (da < -Math.PI) da += Math.PI * 2;
-    m.angle += Math.max(-0.045, Math.min(0.045, da));
-    m.vx = Math.cos(m.angle) * 1.5;
-    m.vy = Math.sin(m.angle) * 1.5;
+    m.angle += Math.max(-0.32, Math.min(0.32, da));
+    m.vx += Math.cos(m.angle) * 0.04;
+    m.vy += Math.sin(m.angle) * 0.04;
+    const mspd = Math.hypot(m.vx, m.vy);
+    if (mspd > 3.5) { m.vx = m.vx / mspd * 3.5; m.vy = m.vy / mspd * 3.5; }
     m.x += m.vx; m.y += m.vy;
     wrap(m);
     m.life--;
@@ -2994,8 +3019,7 @@ function update() {
         checkHiScore();
         popups.push({ x: a.x, y: a.y, text: String(awarded), life: 1 });
         [SFX.smlBoom, SFX.medBoom, SFX.bigBoom][a.size-1]?.();
-        burst(a.x, a.y, 8+a.size*5, 2+a.size, a.color);
-        spawnRings(a.x, a.y, a.r, a.color, a.vx, a.vy);
+        burst(a.x, a.y, 4*(8+a.size*5), 2+a.size, a.color);
         if (a.size > 1) {
           const off = a.r*0.4;
           asteroids.push(mkAsteroid(a.x+(Math.random()-.5)*off, a.y+(Math.random()-.5)*off, a.size-1));
@@ -3008,19 +3032,25 @@ function update() {
     if (hit) continue;
 
     // vs UFO
-    if (ufo && hitCircleWrapped(b, ufo.x, ufo.y, ufo.r)) {
-      const pts = ufo.type === 'alien' ? 4000 : ufo.big ? 500 : 2000;
-      const awardedUfo = Math.round(pts * (1 + combo));
-      score += awardedUfo;
-      combo = Math.min(2.0, Math.round((combo + 0.05) * 100) / 100);
-      comboTmr = 120;
-      checkHiScore();
-      if (score >= extraAt) { if (lives < 5) { lives++; SFX.life(); } extraAt += extraStep; extraStep += 10000; }
-      popups.push({ x: ufo.x, y: ufo.y, text: String(awardedUfo), life: 1 });
-      burst(ufo.x, ufo.y, 30, 4, ufo.color);
-      SFX.medBoom();
-      stopUFOSound(); ufo = null;
+    if (ufo && b.own !== 'ufo' && hitCircleWrapped(b, ufo.x, ufo.y, ufo.r)) {
+      ufo.hp--;
+      ufo.hitFlashTmr = 8;
+      ufo.hitJitterTmr = 3;
+      tone(ufo.type === 'alien' ? 550 : 900, 'square', 0.04, 0.06);
       b.life = 0;
+      if (ufo.hp <= 0) {
+        const pts = ufo.type === 'alien' ? 4000 : 500;
+        const awardedUfo = Math.round(pts * (1 + combo));
+        score += awardedUfo;
+        combo = Math.min(2.0, Math.round((combo + 0.05) * 100) / 100);
+        comboTmr = 120;
+        checkHiScore();
+        if (score >= extraAt) { if (lives < 5) { lives++; SFX.life(); } extraAt += extraStep; extraStep += 10000; }
+        popups.push({ x: ufo.x, y: ufo.y, text: String(awardedUfo), life: 1 });
+        burst(ufo.x, ufo.y, 30, 4, ufo.color);
+        SFX.medBoom();
+        stopUFOSound(); ufo = null;
+      }
     }
 
     // vs mammoth
@@ -3191,7 +3221,6 @@ function killShip() {
   burst(ship.x, ship.y, 40, 6, '#6898D0');
   spawnDeathRings(ship.x, ship.y, ship.vx, ship.vy);
   SFX.die();
-  speak('ship destroyed!');
   ship.alive = false;
   upgradeActive = false; upgradeTmr = 0;
   hyperUpgradeActive = false; hyperUpgradeTmr = 0;
@@ -3203,6 +3232,7 @@ function killShip() {
   if (mammoth) { stopMammothSound(); mammoth = null; }
   missiles = [];
   lives--;
+  if (lives > 0) speak(lives + (lives === 1 ? ', life left!' : ', lives left!'));
   _lifeAnim = { index: lives, frames: 144, type: 'lose' };
   stopBeat();
   if (lives <= 0) {
@@ -3386,16 +3416,33 @@ function drawUFO(u) {
   ctx.restore();
 }
 
+function drawUFOHealthBar(u) {
+  const barW = u.type === 'alien' ? 30 : 40;
+  const barH = 3;
+  // Place bar above the sprite: alien antenna tips reach ~18px up, UFO dome ~14px
+  const above = u.type === 'alien' ? 22 : 18;
+  const bx = Math.round(u.x - barW / 2);
+  const by = Math.round(u.y - above - barH - 2);
+  ctx.save();
+  ctx.strokeStyle = u.color;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(bx + 0.5, by + 0.5, barW, barH);
+  const fill = Math.max(0, (u.hp / u.maxHp) * barW);
+  if (fill > 0) { ctx.fillStyle = u.color; ctx.fillRect(bx + 1, by + 1, fill - 1, barH - 1); }
+  ctx.restore();
+}
+
 function drawMissile(m) {
   ctx.save();
   ctx.translate(m.x, m.y);
   ctx.rotate(m.angle);
+  ctx.scale(0.8, 0.8);  // 20% smaller visually; hitbox unchanged
   // Body outline
   ctx.beginPath();
   MISSILE.forEach(([px, py], i) => i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py));
   ctx.closePath();
   ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 1;
+  ctx.lineWidth = 1.25;  // compensate for scale so stroke stays ~1px
   ctx.stroke();
   // Exhaust flame at nozzle (local x ≈ −15.7)
   if (Math.random() > 0.3) {
@@ -3405,7 +3452,7 @@ function drawMissile(m) {
     ctx.lineTo(-15.7 - fl, 0);
     ctx.lineTo(-15.7, 2.2);
     ctx.strokeStyle = ORG;
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 1.875;  // compensate for scale
     ctx.stroke();
   }
   ctx.restore();
@@ -3537,8 +3584,8 @@ function drawHUD() {
   if (godMode) {
     vText('GOD', W/2, 10, 8, 'center', 1, Math.floor(ticker/15)%2===0 ? '#ff4444' : '#aa0000');
     const _gl = [
-      'I  SHIELD POD', 'O  DUAL FIRE', 'P  HYPER POD',
-      'K  MAMMOTH',    'M  LARGE UFO', 'N  SMALL UFO', 'L  ALIEN UFO',
+      'I  SHIELD POD', 'D  DUAL FIRE', 'P  HYPER POD',
+      'K  MAMMOTH',    'U  LARGE UFO', 'L  ALIEN UFO',
     ];
     const _c = 'rgba(255,80,80,0.55)';
     _gl.forEach((line, i) => vText(line, 10, H - 30 - (_gl.length - 1 - i) * 11, 7, 'left', 1, _c));
@@ -3641,7 +3688,7 @@ function drawSplash() {
     for (let j = 1; j < pts.length; j++) ctx.lineTo(pts[j][0], pts[j][1]);
     ctx.stroke();
   }
-  vText('DEVELOPED MARCH 2026 BY MPGFI ASSISTED BY CLAUDE', W/2, H/2 + 40, 10, 'center', 0.65);
+  vText('DEVELOPED SPRING 2026 BY MPGFI ASSISTED BY CLAUDE', W/2, H/2 + 40, 10, 'center', 0.65);
   vText('MUSIC BY CLAUDE DEBUSSY',                          W/2, H/2 + 54, 10, 'center', 0.65);
   vText('NO COPYRIGHT \u2014 FREE DISTRIBUTION \u2014 ENJOY!',  W/2, H/2 + 68, 10, 'center', 0.65);
   if (Math.floor(ticker/32)%2===0)
@@ -3668,7 +3715,8 @@ function drawTitle() {
   vText('ESC \u2014 EXIT TO TITLE',    W/2, H/2+59, 10, 'center', 1, '#44ff88');
   vText('TAB \u2014 PAUSE',            W/2, H/2+74, 10, 'center', 1, '#44ff88');
   vText('F \u2014 FULL SCREEN TOGGLE', W/2, H/2+89, 10, 'center', 1, '#44ff88');
-  vText('M \u2014 ' + (_musicOn ? 'MUTE MUSIC' : 'UNMUTE MUSIC'), W/2, H - 10, 9, 'center', 1, 'rgba(160,160,255,0.6)');
+  vText('M \u2014 ' + (_musicOn ? 'MUTE MUSIC' : 'UNMUTE MUSIC'), W/2 - 75, H - 10, 9, 'center', 1, 'rgba(160,160,255,0.6)');
+  vText('V \u2014 ' + (_speechOn ? 'MUTE VOICE' : 'UNMUTE VOICE'), W/2 + 75, H - 10, 9, 'center', 1, 'rgba(160,160,255,0.6)');
   // Alternating local / global high score every 2 s (120 frames)
   const showGlobal = FIREBASE_URL && Math.floor(ticker / 120) % 2 === 1;
   if (showGlobal) {
@@ -3915,12 +3963,16 @@ function loop(ts) {
       drawMammoth();
       drawRings();
       if (ufo) {
+        const jx = ufo.hitJitterTmr > 0 ? (Math.random() - 0.5) * 4 : 0;
+        const jy = ufo.hitJitterTmr > 0 ? (Math.random() - 0.5) * 4 : 0;
+        const ufoCol = ufo.hitFlashTmr > 0 ? '#ffffff' : ufo.color;
         ufo.trail.forEach((t, i) => {
           ctx.globalAlpha = (i + 1) * 0.05;
           drawUFO({ ...ufo, x: t.x, y: t.y });
         });
         ctx.globalAlpha = 1;
-        drawUFO(ufo);
+        drawUFO({ ...ufo, x: ufo.x + jx, y: ufo.y + jy, color: ufoCol });
+        if (ufo.hp < ufo.maxHp) drawUFOHealthBar(ufo);
       }
       missiles.forEach(m => { if (m.life > 0) drawMissile(m); });
       bullets.forEach(b => {
@@ -3975,8 +4027,9 @@ function loop(ts) {
 function _godSpawnUFO(type) {
   if (ufo) stopUFOSound();
   const side = Math.random() < 0.5 ? -30 : W + 30;
-  const spd  = type === 'alien' ? 2.0 : 1.44;
+  const spd  = type === 'alien' ? 1.5 : 1.44;
   const big  = type === 'big';
+  const maxHp = type === 'alien' ? 10 : 5;
   const x = side, y = 90 + Math.random() * (H - 180);
   const sx = ship && ship.alive ? ship.x : W / 2;
   const sy = ship && ship.alive ? ship.y : H / 2;
@@ -3987,13 +4040,14 @@ function _godSpawnUFO(type) {
     r: type === 'alien' ? 7 : 21,
     fireTmr: big ? 220 : 55,
     sinePhase: Math.random() * Math.PI * 2, color: '#ffffff', trail: [],
+    hp: maxHp, maxHp, hitFlashTmr: 0, hitJitterTmr: 0,
     ...(type === 'alien' ? {
       spiralAngle:  Math.atan2(y - sy, x - sx),
       spiralRadius: Math.hypot(x - sx, y - sy),
       spiralOmega:  (Math.random() < 0.5 ? 1 : -1) * 0.025,
     } : {}),
   };
-  if (type === 'alien') { startAlienSound(); speak('alien life form detected!'); } else { startUFOSound(); speak('incoming!'); }
+  if (type === 'alien') { startAlienSound(); speak('alien life form detected!'); } else { startUFOSound(ufo.big); speak('incoming!'); }
 }
 const WASD_MAP = { w:'ArrowUp', a:'ArrowLeft', s:'ArrowDown', d:'ArrowRight' };
 window.addEventListener('keydown', e => {
@@ -4004,9 +4058,18 @@ window.addEventListener('keydown', e => {
   // will pick it up and start scheduling notes on its next iteration (~200ms).
   if (ac && ac.state === 'suspended') ac.resume();
 
-  // M — mute / unmute music by zeroing the gain bus (keeps scheduler running)
+  // M — mute / unmute music
   if (e.key === 'm' || e.key === 'M') {
     _musicOn = !_musicOn;
+    // MP3 title track
+    if (_titleAudio) {
+      if (_musicOn) {
+        const onTitle = (state === 'title' || state === 'hiscores' || state === 'globalscores' || state === 'attract');
+        if (_titleAudio.paused) _titleAudio.play().catch(() => {});
+        fadeTitleMusic(onTitle ? 0.4 : 0.05, 400);
+      } else { fadeTitleMusic(0, 300); }
+    }
+    // Procedural music gain bus (kept for easy restore)
     const g = musicBus();
     g.gain.cancelScheduledValues(audio().currentTime);
     g.gain.setValueAtTime(_musicOn ? 0.28 : 0, audio().currentTime);
@@ -4031,11 +4094,10 @@ window.addEventListener('keydown', e => {
   // God Mode spawn keys (playing state only)
   if (godMode && state === 'playing') {
     if (e.key === 'i' || e.key === 'I') { spawnShieldPod(); return; }
-    if (e.key === 'o' || e.key === 'O') { spawnUpgradePod(); return; }
+    if (e.key === 'd' || e.key === 'D') { spawnUpgradePod(); return; }
     if (e.key === 'p' || e.key === 'P') { spawnHyperUpgradePod(); return; }
     if (e.key === 'k' || e.key === 'K') { stopMammothSound(); mammoth = mkMammoth(); startMammothSound(); speak('massive object entering sector!'); return; }
-    if (e.key === 'm' || e.key === 'M') { _godSpawnUFO('big');   return; }
-    if (e.key === 'n' || e.key === 'N') { _godSpawnUFO('alien'); return; }
+    if (e.key === 'u' || e.key === 'U') { _godSpawnUFO('big');   return; }
     if (e.key === 'l' || e.key === 'L') { _godSpawnUFO('alien'); return; }
   }
 
@@ -4084,7 +4146,7 @@ window.addEventListener('keydown', e => {
       }
       return;
     }
-    if (e.key === ' ') { clearTimeout(attractTmr); initGame(); return; }
+    if (e.key === ' ') { clearTimeout(attractTmr); fadeTitleMusic(0.05, 600); initGame(); return; }
     if ((e.key === 'r' || e.key === 'R') && state === 'hiscores' && _resetFlash <= 0) {
       clearTimeout(attractTmr); _resetConfirm = true; return;
     }
@@ -4111,7 +4173,7 @@ window.addEventListener('keydown', e => {
   if (state === 'paused') {
     state = _pauseFrom;
     startBeat();
-    if (ufo) startUFOSound(ufo.big);
+    if (ufo) { if (ufo.type === 'alien') startAlienSound(); else startUFOSound(ufo.big); }
     return;
   }
 
@@ -4147,8 +4209,8 @@ window.addEventListener('keydown', e => {
 
 
   if (e.key === ' ') {
-    if (state === 'title')         { clearTimeout(attractTmr); initGame(); }
-    else if (state === 'hiscores') { clearTimeout(attractTmr); initGame(); }
+    if (state === 'title')         { clearTimeout(attractTmr); fadeTitleMusic(0.05, 600); initGame(); }
+    else if (state === 'hiscores') { clearTimeout(attractTmr); fadeTitleMusic(0.05, 600); initGame(); }
     else if (state === 'gameover' && Date.now() - _gameOverTime > 1000) {
       if (nameRank >= 0) { state = 'nameentry'; }
       else { state = 'hiscores'; }
