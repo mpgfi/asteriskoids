@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Lager_1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 200 200">
+  <!-- Generator: Adobe Illustrator 30.2.1, SVG Export Plug-In . SVG Version: 2.1.1 Build 1)  -->
+  <defs>
+    <style>
+      .st0 {
+        fill: #fff;
+        stroke-width: 5.7px;
+      }
+
+      .st0, .st1 {
+        stroke: #1d1d1b;
+        stroke-miterlimit: 10;
+      }
+
+      .st1 {
+        fill: none;
+        stroke-width: 5.3px;
+      }
+    </style>
+  </defs>
+  <polygon class="st0" points="162.4 152 99 173.7 37.7 151.2 37.7 30.8 162.4 31.6 162.4 152"/>
+  <path class="st1" d="M128.2,114c0,2.5-5.4,25.2-29.3,25.2s-29.3-26.1-29.3-26.1l-.8-39.1,60.4.2s-.9,37.3-.9,39.7Z"/>
+  <line class="st1" x1="66.7" y1="63.8" x2="131.1" y2="63.8"/>
+</svg>
