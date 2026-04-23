@@ -96,7 +96,7 @@
 // ============================================================
 
 const W = 983, H = 553;
-const VERSION = '5.0';
+const VERSION = '5.1';
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const dpr = window.devicePixelRatio || 1;
@@ -3147,8 +3147,8 @@ function update() {
     }
   }
 
-  // ── Collisions: ship bullets vs world ──
-  for (let bi = bullets.length-1; bi >= 0; bi--) {
+  // ── Collisions: ship bullets vs world (skipped during boss stage — handled in updateBossStage) ──
+  if (state !== 'bossstage') for (let bi = bullets.length-1; bi >= 0; bi--) {
     const b = bullets[bi];
     if (b.own !== 'ship') continue;
 
@@ -3404,6 +3404,7 @@ function startHyperspace() {
     };
   });
   state = 'hyperspace';
+  levelBannerInT = 0; levelBannerT = 0; levelBannerAnimating = false;  // reset banner for fresh fade-in
   SFX.hyperspace();
 }
 
@@ -3415,10 +3416,12 @@ function updateHyperspace() {
     s.spd *= 1.09;   // exponential acceleration
     s.dist += s.spd;
   }
+  // Banner zooms in during the final third of hyperspace (same ease-out as other banners)
+  if (_warpT >= 0.65) levelBannerInT = Math.min(1, levelBannerInT + 1 / 30);
   if (_warpT >= 1) {
     _warpT = 0;
     state = 'levelcomplete';
-    levelBannerInT = 0; levelBannerT = 0; levelBannerAnimating = false;
+    levelBannerT = 0; levelBannerAnimating = false;  // keep levelBannerInT — banner already visible
     _levelCompleteTmr = setTimeout(() => {
       if (state === 'levelcomplete' && !levelBannerAnimating) { levelBannerAnimating = true; levelBannerT = 0; }
     }, 3000);
@@ -3443,6 +3446,7 @@ function drawHyperspace() {
   }
   ctx.globalAlpha = 1;
   drawHUD();
+  if (levelBannerInT > 0) drawLevelComplete();  // banner zooms in over the warp
 }
 
 // ============================================================
@@ -3592,11 +3596,27 @@ function drawBonusResult() {}
 // ============================================================
 const BOSS_MAXHP   = 150;
 const BOSS_HIT_R   = 92;    // hitbox radius (approx half figure width at 200px height)
-const BOSS_IMG_W   = 641;   // draw width  (SVG viewBox 3628.3 @ 200px height)
-const BOSS_IMG_H   = 200;   // draw height
-// SVG content center ≈ x:1551, y:553 out of 3628×1134 → at this scale: 274px, 97px
-const BOSS_CX_OFF  = 274;   // pixels from left edge of drawn image to figure centre
-const BOSS_CY_OFF  = 97;    // pixels from top  edge of drawn image to figure centre
+// SVG figure centre in viewBox coords (3628.3 × 1133.9), drawn at 641 × 200 px
+const BOSS_SVG_CX  = 1551;
+const BOSS_SVG_CY  = 553;
+const BOSS_SCALE_X = 641 / 3628.3;   // ≈ 0.1767
+const BOSS_SCALE_Y = 200 / 1133.9;   // ≈ 0.1764
+const BOSS_CY_OFF  = Math.round(BOSS_SVG_CY * BOSS_SCALE_Y);  // ≈ 97 — used for offscreen spawn y
+// Path data transcribed from boss.svg — drawn directly for exact 1px lines + palette colour
+const BOSS_PATHS = [
+  [false, [[1498.3,386.5],[2026.7,244.8],[1814.9,580.1],[1920,1000.1],[1517,742.7],[1112,1000.1],[1197.4,580.1],[968.3,231.5],[1510.1,386.5]]],
+  [true,  [[1217.7,384.2],[1430.7,551.9],[1314.1,558.6]]],
+  [true,  [[1790.1,385],[1577.1,552.8],[1703.5,559.5]]],
+  [false, [[1128.6,468.4],[879.9,697.5],[1183.2,678.8]]],
+  [false, [[1886.4,465.2],[2135.5,664.3],[1831.9,643.5]]],
+  [false, [[1204.5,296.3],[1009.5,74.1],[1140.5,34.7],[1510.1,386.5]]],
+  [false, [[1776.7,311.1],[1983,75.3],[1851.9,85.1],[1499.1,390.2]]],
+  [false, [[1018.4,680],[898.4,840.6],[1015.2,920.1],[1151.5,816.3]]],
+  [false, [[1998.5,657.2],[2118.6,817.9],[2001.8,897.4],[1865.5,793.5]]],
+  [false, [[1232.6,933.1],[1200.2,1048.3],[1375.4,1072.6],[1524.7,864.9],[1719.4,1069.4],[1884.9,1035.3],[1833,946.1]]],
+  [false, [[1334.9,856.8],[1506.9,399.2],[1695.1,864.9]]],
+  [false, [[1292.1,167.4],[1360.3,95.6],[1509.2,228.4],[1624,102.8],[1744.2,174.5]]],
+];
 
 function startBossStage() {
   const enc = level / 5;  // encounter number: 1 at level 5, 2 at level 10, …
@@ -3607,8 +3627,8 @@ function startBossStage() {
     _entering: true,
     hp, maxHp: hp,
     hitFlashTmr: 0, hitJitterTmr: 0,
-    trail: [],
     fireTmr: 220,   // initial delay before first salvo (longer — waits for entry)
+    pendingMissiles: [], missileDelay: 0,
     bobPhase: 0, firePhase: 0,
     enc,
     salvo:        Math.min(3 + (enc - 1), 7),         // 3, 4, 5, 6, 7 missiles
@@ -3709,7 +3729,6 @@ function updateBossStage() {
   boss.y += (_ty - boss.y) * 0.026;
   if (boss.hitFlashTmr > 0) boss.hitFlashTmr--;
   if (boss.hitJitterTmr > 0) boss.hitJitterTmr--;
-  if (ticker % 3 === 0) { boss.trail.push({ x: boss.x, y: boss.y }); if (boss.trail.length > 6) boss.trail.shift(); }
 
   // Ship vs boss body — contact kills the player
   if (ship.alive && invTmr <= 0) {
@@ -3719,16 +3738,24 @@ function updateBossStage() {
     }
   }
 
+  // Drain missile queue — one every 0.2 s (12 frames)
+  if (boss.missileDelay > 0) {
+    boss.missileDelay--;
+  } else if (boss.pendingMissiles.length > 0) {
+    const a = boss.pendingMissiles.shift();
+    missiles.push({ x: boss.x, y: boss.y, vx: Math.cos(a)*0.6, vy: Math.sin(a)*0.6, angle: a, r: 8, life: 900, maxSpd: 1.75 });
+    SFX.whoosh();
+    if (boss.pendingMissiles.length > 0) boss.missileDelay = 12;
+  }
+
   // Fire / spawn cycle: 1 missile → 1 alien → 2 missiles → 2 aliens → repeat
   boss.fireTmr--;
   if (boss.fireTmr <= 0) {
-    const mkM = a => ({ x: boss.x, y: boss.y, vx: Math.cos(a)*0.6, vy: Math.sin(a)*0.6, angle: a, r: 8, life: 900, maxSpd: 1.75 });
     const fireSalvo = () => {
       const tx = ship.alive ? ship.x : W/2, ty = ship.alive ? ship.y : H/2;
       const base = Math.atan2(ty - boss.y, tx - boss.x);
       const n = boss.salvo;
-      Array.from({length: n}, (_, i) => (i - (n-1)/2) * 0.28).forEach(da => missiles.push(mkM(base + da)));
-      SFX.whoosh();
+      Array.from({length: n}, (_, i) => (i - (n-1)/2) * 0.28).forEach(da => boss.pendingMissiles.push(base + da));
     };
     const spawnBossAlien = () => {
       const sx = ship.alive ? ship.x : W/2, sy = ship.alive ? ship.y : H/2;
@@ -3758,23 +3785,34 @@ function updateBossStage() {
   // Update boss aliens (ufo / ufo2 slots)
   _updateUFOSlots();
 
-  // Bullets vs boss aliens (1 hit, 500 pts each)
+  // Bullets vs missiles — player can shoot missiles down during boss stage too
+  for (let bi = bullets.length - 1; bi >= 0; bi--) {
+    const b = bullets[bi];
+    if (b.life <= 0 || b.own === 'ufo') continue;
+    for (let mi = 0; mi < missiles.length; mi++) {
+      const m = missiles[mi];
+      if (m.life > 0 && Math.hypot(b.x - m.x, b.y - m.y) < m.r + 4) {
+        burst(m.x, m.y, 10, 2.5, ORG);
+        SFX.smlBoom();
+        m.life = 0; b.life = 0;
+        break;
+      }
+    }
+  }
+
+  // Bullets vs boss aliens — no points awarded during boss stage
   for (let bi = bullets.length - 1; bi >= 0; bi--) {
     const b = bullets[bi];
     if (b.life <= 0 || b.own === 'ufo') continue;
     if (ufo && hitCircleWrapped(b, ufo.x, ufo.y, ufo.r)) {
       b.life = 0;
       burst(ufo.x, ufo.y, 30, 3, ufo.color); SFX.smlBoom();
-      score += 4000; checkHiScore();
-      popups.push({ x: ufo.x, y: ufo.y, text: '4000', life: 1 });
       ufo = null;
       continue;
     }
     if (ufo2 && hitCircleWrapped(b, ufo2.x, ufo2.y, ufo2.r)) {
       b.life = 0;
       burst(ufo2.x, ufo2.y, 30, 3, ufo2.color); SFX.smlBoom();
-      score += 4000; checkHiScore();
-      popups.push({ x: ufo2.x, y: ufo2.y, text: '4000', life: 1 });
       ufo2 = null;
     }
   }
@@ -3813,24 +3851,20 @@ function drawBossHealthBar() {
 }
 
 function drawBossSprite(bossObj) {
-  if (!_bossImg.complete || !_bossImg.naturalWidth) return;
-  const hr = Math.round(_paletteHue - 36);
-  const tintFilter = `sepia(1) saturate(4) hue-rotate(${hr}deg)`;
-  // Trail ghost images
-  ctx.save();
-  ctx.filter = tintFilter;
-  bossObj.trail.forEach((t, i) => {
-    ctx.globalAlpha = (i + 1) * 0.04;
-    ctx.drawImage(_bossImg, t.x - BOSS_CX_OFF, t.y - BOSS_CY_OFF, BOSS_IMG_W, BOSS_IMG_H);
-  });
-  ctx.globalAlpha = 1;
-  ctx.restore();
-  // Main sprite
   const jx = bossObj.hitJitterTmr > 0 ? (Math.random() - 0.5) * 6 : 0;
   const jy = bossObj.hitJitterTmr > 0 ? (Math.random() - 0.5) * 6 : 0;
+  const ox = bossObj.x + jx, oy = bossObj.y + jy;
   ctx.save();
-  ctx.filter = bossObj.hitFlashTmr > 0 ? 'brightness(4) saturate(0)' : tintFilter;
-  ctx.drawImage(_bossImg, bossObj.x - BOSS_CX_OFF + jx, bossObj.y - BOSS_CY_OFF + jy, BOSS_IMG_W, BOSS_IMG_H);
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = bossObj.hitFlashTmr > 0 ? '#ffffff' : PALETTE[0];
+  for (const [closed, pts] of BOSS_PATHS) {
+    ctx.beginPath();
+    ctx.moveTo((pts[0][0] - BOSS_SVG_CX) * BOSS_SCALE_X + ox, (pts[0][1] - BOSS_SVG_CY) * BOSS_SCALE_Y + oy);
+    for (let i = 1; i < pts.length; i++)
+      ctx.lineTo((pts[i][0] - BOSS_SVG_CX) * BOSS_SCALE_X + ox, (pts[i][1] - BOSS_SVG_CY) * BOSS_SCALE_Y + oy);
+    if (closed) ctx.closePath();
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
