@@ -96,7 +96,7 @@
 // ============================================================
 
 const W = 983, H = 553;
-const VERSION = '5.1';
+const VERSION = '5.13';
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const dpr = window.devicePixelRatio || 1;
@@ -1954,8 +1954,8 @@ function _musicTick() {
   const a = audio();
   // Retry every 200 ms until the browser grants audio (autoplay policy)
   if (a.state === 'suspended') { _ml.timer = setTimeout(_musicTick, 200); return; }
-  // Self-terminate as soon as we leave the attract cycle
-  if (state !== 'title' && state !== 'hiscores' && state !== 'globalscores' && state !== 'attract') { _ml.running = false; return; }
+  // Self-terminate as soon as we leave the title cycle
+  if (state !== 'title' && state !== 'hiscores' && state !== 'globalscores') { _ml.running = false; return; }
   const LOOKAHEAD = 0.35, now = a.currentTime;
   if (_ml.loopStart === 0) _ml.loopStart = now;
   for (let guard = 0; guard < 500; guard++) {
@@ -2110,9 +2110,13 @@ fetch('assets/boss.svg').then(r => r.text()).then(svg => {
   _bossImg.src = URL.createObjectURL(new Blob([thin], {type: 'image/svg+xml'}));
 }).catch(() => { _bossImg.src = 'assets/boss.svg'; });
 let shieldPod = null, shieldPodTmr = 1200 + Math.random() * 600;
+let bombPod = null, bombPodTmr = 1800 + Math.random() * 900;
+let hasBomb = false;
+let _bombRings = [];  // expanding magenta rings on detonation
 let mammoth = null;                          // mammoth asteroid (one at a time)
 let mammothSpawnTmr = 7200;                  // first spawn at ~2 min after L6 reached
-let godMode = false;                         // Shift+Cmd+G: enables dev spawn keys
+let godMode = false;                         // ° tapped 5× to enable dev spawn keys
+let _godModeTaps = 0, _godModeTapTmr = null;
 let _godWarpInput = null;                    // null = inactive, string = collecting digits
 let boss = null;                             // boss entity (one at a time)
 let shieldActive = false, shieldTmr = 0;  // player shield: absorbs 1 hit, 10 s
@@ -2171,7 +2175,7 @@ function mkAsteroid(x, y, size) {
     const r = R*(0.6 + Math.random()*0.75);
     return [Math.cos(a)*r, Math.sin(a)*r];
   });
-  const spd = Math.max(0.55, ((0.5 + Math.random()*0.8) * (4-size) * 0.55 + 0.2) * 0.75 * 0.9 * 1.1 * Math.pow(1.05, level - 1));
+  const spd = Math.max(0.55, ((0.5 + Math.random()*0.8) * (4-size) * 0.55 + 0.2) * 0.75 * 0.9 * 1.1 * Math.pow(1.03, level - 1));
   const dir = Math.random()*Math.PI*2;
   return {
     x, y,
@@ -2335,6 +2339,32 @@ function spawnShieldPod() {
   };
 }
 
+function spawnBombPod() {
+  const edge = Math.floor(Math.random() * 4);
+  let sx, sy;
+  if      (edge === 0) { sx = Math.random() * W; sy = -50; }
+  else if (edge === 1) { sx = Math.random() * W; sy = H + 50; }
+  else if (edge === 2) { sx = -50;    sy = Math.random() * H; }
+  else                 { sx = W + 50; sy = Math.random() * H; }
+  const cx = W / 2, cy = H / 2;
+  const orbitRadius = Math.min(W, H) * 0.324;
+  const podSpd = orbitRadius * 0.0175;
+  const orbitAngle = Math.atan2(sy - cy, sx - cx);
+  const orbitDir   = Math.random() < 0.5 ? 1 : -1;
+  const initA = Math.atan2(cy - sy, cx - sx);
+  bombPod = {
+    x: sx, y: sy,
+    vx: Math.cos(initA) * podSpd, vy: Math.sin(initA) * podSpd,
+    spd: podSpd,
+    phase: 'approach',
+    orbitAngle, orbitAngleTravelled: 0,
+    orbitDir, orbitRadius,
+    sinePhase: Math.random() * Math.PI * 2,
+    rot: 0, rotSpd: (Math.random() < 0.5 ? 1 : -1) * 0.025, r: 10,
+    _exitVx: 0, _exitVy: 0,
+  };
+}
+
 // Smoothly rotate pod velocity toward (desX, desY) by at most maxTurn rad/frame.
 // Produces arc-shaped paths rather than instant direction changes.
 function steerPod(pod, desX, desY) {
@@ -2444,6 +2474,8 @@ function initGame() {
   hyperUpgradePod = null; hyperUpgradePodTmr = 2400 + Math.random() * 1600;
   shieldPod = null; shieldPodTmr = 1200 + Math.random() * 600;
   shieldActive = false; shieldTmr = 0;
+  bombPod = null; bombPodTmr = 1800 + Math.random() * 900;
+  hasBomb = false; _bombRings = [];
   stopMammothSound(); mammoth = null; mammothSpawnTmr = 1200;
   stopAlienSound(); boss = null;
   hyperUpgradeActive = false; hyperUpgradeTmr = 0;
@@ -2480,19 +2512,20 @@ function startAttractCycle() {
   //   startMusic();
   // }
   clearTimeout(attractTmr);
-  // title (10 s) → hiscores (5 s) → globalscores (5 s) → attract gameplay (10 s) → repeat
+  // title (10 s) → hiscores (5 s) → globalscores (5 s) → loop back to title
   attractTmr = setTimeout(() => {
     if (state !== 'title') return;
     state = 'hiscores';
     attractTmr = setTimeout(() => {
       if (state !== 'hiscores') return;
       if (FIREBASE_URL) { state = 'globalscores'; fetchGlobalScores();
-        attractTmr = setTimeout(() => { if (state === 'globalscores') startAttractPlay(); }, 5000);
-      } else { startAttractPlay(); }
+        attractTmr = setTimeout(() => { if (state === 'globalscores') { state = 'title'; startAttractCycle(); } }, 5000);
+      } else { state = 'title'; startAttractCycle(); }
     }, 5000);
   }, 10000);
 }
 
+/* DEMO MODE — commented out
 function startAttractPlay() {
   clearTimeout(attractTmr);
   state = 'attract';
@@ -2505,7 +2538,6 @@ function startAttractPlay() {
 }
 
 function updateDemoShip() {
-  // Classify asteroids: danger zone (<180px) vs target (nearest beyond danger)
   const DANGER = 180, ENGAGE = 320;
   let threatAngle = null, threatDist = Infinity;
   let targetAngle = null, targetDist = Infinity;
@@ -2517,13 +2549,10 @@ function updateDemoShip() {
   }
   let tgt;
   if (threatDist < DANGER) {
-    // Steer directly away from the threat
     tgt = threatAngle + Math.PI + Math.PI/2;
   } else if (targetAngle !== null && targetDist < ENGAGE) {
-    // Steer toward a reachable target
     tgt = targetAngle + Math.PI/2;
   } else if (targetAngle !== null) {
-    // Far target: head toward it
     tgt = targetAngle + Math.PI/2;
   } else {
     tgt = demoShip.angle;
@@ -2533,7 +2562,6 @@ function updateDemoShip() {
   demoShip.angleVel = Math.max(-0.09, Math.min(0.09, demoShip.angleVel));
   if (threatDist >= DANGER && targetAngle === null) demoShip.angleVel *= 0.72;
   demoShip.angle += demoShip.angleVel;
-  // Thrust: always when evading danger; otherwise only when not close enough to shoot
   demoShip.thrusting = threatDist < DANGER || (targetAngle !== null && targetDist > 120);
   if (demoShip.thrusting) {
     const fa = demoShip.angle - Math.PI/2;
@@ -2543,7 +2571,6 @@ function updateDemoShip() {
   }
   demoShip.vx*=0.991; demoShip.vy*=0.991;
   demoShip.x+=demoShip.vx; demoShip.y+=demoShip.vy; wrap(demoShip);
-  // Fire when lined up on a target
   demoFireTmr--;
   if (demoFireTmr<=0 && targetAngle !== null) {
     const fa=demoShip.angle-Math.PI/2;
@@ -2552,6 +2579,7 @@ function updateDemoShip() {
     demoFireTmr=25;
   }
 }
+END DEMO MODE */
 
 // ============================================================
 //  UPDATE
@@ -2714,6 +2742,7 @@ function update() {
     return;
   }
 
+  /* DEMO MODE update — commented out
   if (state === 'attract') {
     if (asteroids.length === 0) {
       for (let i=0;i<6;i++) asteroids.push(mkAsteroid(Math.random()*W, Math.random()*H, 1+Math.floor(Math.random()*3)));
@@ -2723,7 +2752,6 @@ function update() {
     bullets=bullets.filter(b=>b.life>0);
     bullets.forEach(b=>{b.x+=b.vx;b.y+=b.vy;b.life--;wrap(b);});
     updateDemoShip();
-    // Demo bullets vs asteroids (split/destroy, no scoring)
     for (let bi=bullets.length-1;bi>=0;bi--) {
       const b=bullets[bi];
       for (let ai=asteroids.length-1;ai>=0;ai--) {
@@ -2741,6 +2769,7 @@ function update() {
     }
     return;
   }
+  END DEMO MODE update */
 
   // Heat keeps cooling during death / level-end / game-over
   if (state === 'dead' || state === 'levelcomplete' || state === 'gameover') {
@@ -3147,6 +3176,54 @@ function update() {
     }
   }
 
+  // ── BOMB POD ──
+  if (!bombPod) {
+    bombPodTmr--;
+    if (bombPodTmr <= 0 && asteroids.length > 0 && !hasBomb && !upgradePod && !hyperUpgradePod && !shieldPod && levelGraceTmr <= 0) {
+      if (asteroids.length > 4 || Math.random() < 0.10) spawnBombPod();
+      bombPodTmr = 1800 + Math.random() * 900;
+    }
+  } else {
+    const pod = bombPod;
+    const cx = W / 2, cy = H / 2;
+    pod.sinePhase += 0.038;
+    if (pod.phase === 'approach') {
+      const distC = Math.hypot(pod.x - cx, pod.y - cy);
+      if (distC <= pod.orbitRadius * 1.05) { pod.phase = 'orbit'; }
+      else {
+        const curA  = Math.atan2(pod.y - cy, pod.x - cx);
+        const t     = Math.min(1, (distC - pod.orbitRadius) / 180);
+        const desX  = (cx - pod.x) / distC * t + (-Math.sin(curA) * pod.orbitDir) * (1 - t);
+        const desY  = (cy - pod.y) / distC * t + ( Math.cos(curA) * pod.orbitDir) * (1 - t);
+        steerPod(pod, desX, desY); pod.x += pod.vx; pod.y += pod.vy;
+      }
+    } else if (pod.phase === 'orbit') {
+      const angSpd = 0.0175 * pod.orbitDir;
+      pod.orbitAngle += angSpd; pod.orbitAngleTravelled += Math.abs(angSpd);
+      const wobble = Math.sin(pod.sinePhase * 2.7) * 9 + Math.sin(pod.sinePhase * 0.9) * 4;
+      const r = pod.orbitRadius + wobble;
+      pod.x = cx + Math.cos(pod.orbitAngle) * r; pod.y = cy + Math.sin(pod.orbitAngle) * r;
+      pod._exitVx = -Math.sin(pod.orbitAngle) * pod.orbitDir * pod.spd;
+      pod._exitVy =  Math.cos(pod.orbitAngle) * pod.orbitDir * pod.spd;
+      if (pod.orbitAngleTravelled >= Math.PI * 6) { pod.phase = 'exit'; pod.vx = pod._exitVx; pod.vy = pod._exitVy; }
+    } else {
+      const curA  = Math.atan2(pod.y - cy, pod.x - cx);
+      const distC = Math.hypot(pod.x - cx, pod.y - cy);
+      const w     = Math.min(1, (distC - pod.orbitRadius) / 140);
+      const desX  = (-Math.sin(curA) * pod.orbitDir) * (1 - w) + (pod.x - cx) / distC * w;
+      const desY  = ( Math.cos(curA) * pod.orbitDir) * (1 - w) + (pod.y - cy) / distC * w;
+      steerPod(pod, desX, desY); pod.x += pod.vx; pod.y += pod.vy;
+      if (pod.x < -120 || pod.x > W + 120 || pod.y < -120 || pod.y > H + 120) bombPod = null;
+    }
+  }
+
+  // ── Bomb rings update ──
+  _bombRings = _bombRings.filter(ring => {
+    ring.r += ring.spd; ring.spd *= 1.04;
+    ring.alpha = Math.max(0, 1 - ring.r / ring.maxR);
+    return ring.alpha > 0;
+  });
+
   // ── Collisions: ship bullets vs world (skipped during boss stage — handled in updateBossStage) ──
   if (state !== 'bossstage') for (let bi = bullets.length-1; bi >= 0; bi--) {
     const b = bullets[bi];
@@ -3298,6 +3375,21 @@ function update() {
         speak('shield!');
         shieldActive = true; shieldTmr = 600;
         shieldPod = null;
+        b.life = 0;
+      }
+    }
+
+    // vs bomb pod — must be shot to collect
+    if (!hit && bombPod && b.life > 0) {
+      const pod = bombPod;
+      if (Math.hypot(b.x - pod.x, b.y - pod.y) < pod.r + 6) {
+        popups.push({ x: pod.x, y: pod.y, text: 'SMART BOMB', life: 1, color: '#ff00ff' });
+        burst(pod.x, pod.y, 24, 4, '#ff00ff');
+        spawnRings(pod.x, pod.y, pod.r * 2, '#ff00ff');
+        SFX.medBoom();
+        speak('smart bomb!');
+        hasBomb = true;
+        bombPod = null;
         b.life = 0;
       }
     }
@@ -3618,6 +3710,47 @@ const BOSS_PATHS = [
   [false, [[1292.1,167.4],[1360.3,95.6],[1509.2,228.4],[1624,102.8],[1744.2,174.5]]],
 ];
 
+function detonateBomb() {
+  if (!hasBomb || !ship.alive) return;
+  hasBomb = false;
+  const blastR = 300;  // fixed kill radius 300px
+  const inBlast = (x, y) => Math.hypot(x - ship.x, y - ship.y) < blastR;
+  // Wipe asteroids in range
+  asteroids = asteroids.filter(a => {
+    if (!inBlast(a.x, a.y)) return true;
+    burst(a.x, a.y, 4 * (4 + a.size * 4), 2 + a.size, a.color); return false;
+  });
+  // Wipe UFOs / aliens in range
+  if (ufo  && inBlast(ufo.x,  ufo.y))  { burst(ufo.x,  ufo.y,  50, 4, ufo.color);  stopUFOSound();   ufo  = null; }
+  if (ufo2 && inBlast(ufo2.x, ufo2.y)) { burst(ufo2.x, ufo2.y, 50, 4, ufo2.color); stopAlienSound(); ufo2 = null; }
+  // Wipe missiles and UFO bullets in range
+  missiles = missiles.filter(m => { if (!inBlast(m.x, m.y)) return true; m.life = 0; return false; });
+  bullets.forEach(b => { if (b.own === 'ufo' && inBlast(b.x, b.y)) b.life = 0; });
+  // Wipe mammoth in range
+  if (mammoth && inBlast(mammoth.x, mammoth.y)) { burst(mammoth.x, mammoth.y, 70, 8, mammoth.color); stopMammothSound(); mammoth = null; }
+  // 20 rings expanding to blast radius — visually marks the kill zone
+  for (let i = 0; i < 20; i++)
+    _bombRings.push({ r: i * (blastR / 22), maxR: blastR, spd: 4 + i * 0.9, alpha: 1 });
+  // Sound: deep whomp + rising sweep
+  try {
+    const a = audio(), t = a.currentTime;
+    const o = a.createOscillator(), g = a.createGain();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(55, t);
+    o.frequency.exponentialRampToValueAtTime(6000, t + 0.9);
+    g.gain.setValueAtTime(0.28 * _vol.whoosh, t);
+    g.gain.linearRampToValueAtTime(0.0001, t + 0.9);
+    o.connect(g); g.connect(master()); o.start(t); o.stop(t + 0.95);
+    const o2 = a.createOscillator(), g2 = a.createGain();
+    o2.type = 'square';
+    o2.frequency.setValueAtTime(80, t);
+    o2.frequency.exponentialRampToValueAtTime(4000, t + 0.7);
+    g2.gain.setValueAtTime(0.14 * _vol.whoosh, t);
+    g2.gain.linearRampToValueAtTime(0.0001, t + 0.7);
+    o2.connect(g2); g2.connect(master()); o2.start(t); o2.stop(t + 0.75);
+  } catch(e) {}
+}
+
 function startBossStage() {
   const enc = level / 5;  // encounter number: 1 at level 5, 2 at level 10, …
   const hp  = BOSS_MAXHP + (enc - 1) * 15;           // 150, 165, 180, 195 …
@@ -3642,7 +3775,7 @@ function startBossStage() {
   state = 'bossstage';
   asteroids = []; ufo = null; ufo2 = null; mammoth = null; missiles = [];
   stopUFOSound(); stopMammothSound(); stopBeat();
-  upgradePod = null; hyperUpgradePod = null; shieldPod = null;
+  upgradePod = null; hyperUpgradePod = null; shieldPod = null; bombPod = null;
   // Move ship to safe position away from boss and grant entry invincibility
   ship.x = W / 2; ship.y = H - 90; ship.vx = 0; ship.vy = 0;
   invTmr = Math.max(invTmr, 220);
@@ -3881,6 +4014,8 @@ function drawBossStage() {
   }); ctx.globalAlpha = 1;
   drawPopups();
   drawShieldRing();
+  drawBombRings();
+  if (bombPod) drawBombPod(bombPod);
   drawShip(ship);
   drawHUD();
   if (boss) drawBossHealthBar();
@@ -3895,7 +4030,7 @@ function killShip() {
   ship.alive = false;
   upgradeActive = false; upgradeTmr = 0;
   hyperUpgradeActive = false; hyperUpgradeTmr = 0;
-  upgradePod = null; hyperUpgradePod = null; shieldPod = null;
+  upgradePod = null; hyperUpgradePod = null; shieldPod = null; bombPod = null;
   _upgradePending = false; _hyperUpgradePending = false;
   shieldActive = false; shieldTmr = 0;
   combo = 0; comboTmr = 0; comboZeroAnim = 0;
@@ -4018,6 +4153,15 @@ function drawShip(s) {
     fl.slice(1).forEach(([x,y])=>ctx.lineTo(x,y));
     ctx.strokeStyle = ORG; ctx.lineWidth = 1.5;
     ctx.stroke();
+  }
+  // Smart bomb indicator — small pulsing magenta dot above the ship nose
+  if (hasBomb) {
+    const pulse = 0.55 + 0.45 * Math.sin(ticker * 0.18);
+    const [nx, ny] = [s.x + Math.sin(s.angle) * -20, s.y + Math.cos(s.angle) * 20];
+    ctx.beginPath();
+    ctx.arc(nx, ny, 4, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255,0,255,${pulse.toFixed(2)})`;
+    ctx.fill();
   }
   ctx.restore();
 }
@@ -4232,6 +4376,53 @@ function drawShieldPod(u) {
   ctx.restore();
 }
 
+function drawBombPod(u) {
+  const s = 0.13;
+  const MAG = '#ff00ff';
+  ctx.save();
+  ctx.translate(u.x, u.y);
+  ctx.strokeStyle = MAG;
+  ctx.lineWidth = 1.5;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  // Outer shield polygon (from bombupgrade.svg)
+  ctx.beginPath();
+  [[162.4,152],[99,173.7],[37.7,151.2],[37.7,30.8],[162.4,31.6]].forEach(([px, py], i) => {
+    const tx = (px - 100) * s, ty = (py - 100) * s;
+    if (i === 0) ctx.moveTo(tx, ty); else ctx.lineTo(tx, ty);
+  });
+  ctx.closePath();
+  ctx.stroke();
+  // Bomb body circle
+  ctx.beginPath();
+  ctx.arc((99.5 - 100) * s, (115.4 - 100) * s, 34.5 * s, 0, Math.PI * 2);
+  ctx.stroke();
+  // Detonator rect
+  ctx.strokeRect((90 - 100) * s, (66.5 - 100) * s, 18.6 * s, 12.9 * s);
+  // Fuse (smooth cubic bezier)
+  const fx = (98.9 - 100) * s, fy = (65.9 - 100) * s;
+  ctx.beginPath();
+  ctx.moveTo(fx, fy);
+  ctx.bezierCurveTo(fx, fy, fx + 11.9 * s, fy - 25.9 * s, fx + 28.6 * s, fy - 12.3 * s);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawBombRings() {
+  if (_bombRings.length === 0) return;
+  ctx.save();
+  ctx.strokeStyle = '#ff00ff';
+  ctx.lineWidth = 1.5;
+  for (const ring of _bombRings) {
+    ctx.globalAlpha = ring.alpha;
+    ctx.beginPath();
+    ctx.arc(ship.x, ship.y, ring.r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
 function drawShieldRing() {
   if (!shieldActive) return;
   const pulse = 0.5 + 0.5 * Math.sin(ticker * 0.18);
@@ -4273,8 +4464,8 @@ function drawHUD() {
     vText('GOD', W/2, 10, 8, 'center', 1, Math.floor(ticker/15)%2===0 ? '#ff4444' : '#aa0000');
     const _gl = [
       'I  SHIELD POD', 'D  DUAL FIRE', 'P  HYPER POD',
-      'K  MAMMOTH',    'U  LARGE UFO', 'L  ALIEN UFO',
-      'C  BOSS STAGE', 'H  WARP TO LEVEL',
+      'B  SMART BOMB', 'K  MAMMOTH',   'U  LARGE UFO',
+      'L  ALIEN UFO',  'C  BOSS STAGE','H  WARP TO LEVEL',
     ];
     const _c = 'rgba(255,80,80,0.55)';
     _gl.forEach((line, i) => vText(line, 10, H - 30 - (_gl.length - 1 - i) * 11, 7, 'left', 1, _c));
@@ -4406,9 +4597,10 @@ function drawTitle() {
   vText('UP \u2014 THRUST',            W/2, H/2+14, 10, 'center', 1, '#44ff88');
   vText('DOWN \u2014 HYPERSPACE',      W/2, H/2+29, 10, 'center', 1, '#44ff88');
   vText('SPACE \u2014 FIRE',           W/2, H/2+44, 10, 'center', 1, '#44ff88');
-  vText('ESC \u2014 EXIT TO TITLE',    W/2, H/2+59, 10, 'center', 1, '#44ff88');
-  vText('TAB \u2014 PAUSE',            W/2, H/2+74, 10, 'center', 1, '#44ff88');
-  vText('F \u2014 FULL SCREEN TOGGLE', W/2, H/2+89, 10, 'center', 1, '#44ff88');
+  vText('X \u2014 SMART BOMB',         W/2, H/2+59, 10, 'center', 1, '#44ff88');
+  vText('F \u2014 FULL SCREEN TOGGLE', W/2, H/2+79, 10, 'center', 1, '#00ffff');
+  vText('TAB \u2014 PAUSE',            W/2, H/2+94, 10, 'center', 1, '#00ffff');
+  vText('ESC \u2014 EXIT TO TITLE',    W/2, H/2+109, 10, 'center', 1, '#00ffff');
   vText('M \u2014 ' + (_musicOn ? 'MUTE MUSIC' : 'UNMUTE MUSIC'), W/2 - 75, H - 10, 9, 'center', 1, 'rgba(160,160,255,0.6)');
   vText('V \u2014 ' + (_speechOn ? 'MUTE VOICE' : 'UNMUTE VOICE'), W/2 + 75, H - 10, 9, 'center', 1, 'rgba(160,160,255,0.6)');
   // Alternating local / global high score every 2 s (120 frames)
@@ -4592,7 +4784,7 @@ let starAngle = 0;
 let starVel       = 1.0;   // current angular velocity, deg/s
 let starTargetVel = 1.0;   // velocity we're drifting toward
 let starVelTimer  = 180;   // frames until next target pick
-const MENU_STATES = new Set(['splash','title','hiscores','globalscores','attract']);
+const MENU_STATES = new Set(['splash','title','hiscores','globalscores']);
 function loop(ts) {
   if (ts - last >= 15.5) {
     const dt = Math.min(ts - last, 50);
@@ -4622,6 +4814,7 @@ function loop(ts) {
       drawHiScores();
     } else if (state === 'globalscores') {
       drawGlobalScores();
+    /* DEMO MODE draw — commented out
     } else if (state === 'attract') {
       asteroids.forEach(drawAsteroid);
       if (demoShip) drawShip(demoShip);
@@ -4629,6 +4822,7 @@ function loop(ts) {
       drawParticles();
       vText('DEMO', W/2, H/2, 42, 'center', 1, 'rgba(255,255,255,0.14)');
       if (Math.floor(ticker/30)%2===0) vText('PRESS SPACE TO PLAY', W/2, H-28, 12);
+    END DEMO MODE draw */
     } else if (state === 'nameentry') {
       drawNameEntry();
     } else if (state === 'bossstage' || (state === 'dead' && boss)) {
@@ -4674,9 +4868,11 @@ function loop(ts) {
       if (upgradePod) drawUpgradePod(upgradePod);
       if (hyperUpgradePod) drawHyperUpgradePod(hyperUpgradePod);
       if (shieldPod) drawShieldPod(shieldPod);
+      if (bombPod) drawBombPod(bombPod);
       drawParticles();
       drawPopups();
       drawShieldRing();
+      drawBombRings();
       drawShip(ship);
       drawHUD();
       if (state === 'dead' && Math.floor(ticker/22)%2===0)
@@ -4759,7 +4955,7 @@ window.addEventListener('keydown', e => {
     // MP3 title track
     if (_titleAudio) {
       if (_musicOn) {
-        const onTitle = (state === 'title' || state === 'hiscores' || state === 'globalscores' || state === 'attract');
+        const onTitle = (state === 'title' || state === 'hiscores' || state === 'globalscores');
         if (_titleAudio.paused) _titleAudio.play().catch(() => {});
         fadeTitleMusic(onTitle ? 0.4 * _vol.musicTitle : 0.1 * _vol.musicGame, 400);
       } else { fadeTitleMusic(0, 300); }
@@ -4784,7 +4980,13 @@ window.addEventListener('keydown', e => {
   if ((e.key === 'v' || e.key === 'V') && state !== 'nameentry') { _speechOn = !_speechOn; if (_speechOn) speak('voice on'); return; }
 
   // ° — toggle God Mode (dev spawn keys)
-  if (e.key === '°') { godMode = !godMode; return; }
+  if (e.key === '°') {
+    _godModeTaps++;
+    clearTimeout(_godModeTapTmr);
+    _godModeTapTmr = setTimeout(() => { _godModeTaps = 0; }, 1500);
+    if (_godModeTaps >= 5) { godMode = !godMode; _godModeTaps = 0; }
+    return;
+  }
 
   // God Mode: H — level warp input (works in any active game state)
   if (godMode && (e.key === 'h' || e.key === 'H') && _godWarpInput === null &&
@@ -4815,11 +5017,16 @@ window.addEventListener('keydown', e => {
     if (e.key === 'i' || e.key === 'I') { spawnShieldPod(); return; }
     if (e.key === 'd' || e.key === 'D') { spawnUpgradePod(); return; }
     if (e.key === 'p' || e.key === 'P') { spawnHyperUpgradePod(); return; }
+    if (e.key === 'b' || e.key === 'B') { spawnBombPod(); return; }
     if (e.key === 'k' || e.key === 'K') { stopMammothSound(); mammoth = mkMammoth(); startMammothSound(); speak('massive object entering sector!'); return; }
     if (e.key === 'u' || e.key === 'U') { _godSpawnUFO('big');   return; }
     if (e.key === 'l' || e.key === 'L') { _godSpawnUFO('alien'); return; }
-    // if (e.key === 'b' || e.key === 'B') { startBonusStage(); return; }  // bonus stage disabled
     if (e.key === 'c' || e.key === 'C') { startBossStage();  return; }
+  }
+
+  // X — detonate smart bomb (playing or boss stage)
+  if ((e.key === 'x' || e.key === 'X') && (state === 'playing' || state === 'bossstage')) {
+    detonateBomb(); return;
   }
 
   // Splash: any key skips to title (and wakes AudioContext)
@@ -4850,8 +5057,8 @@ window.addEventListener('keydown', e => {
   }
   if (state === 'levelstart' && levelReady && !levelBannerAnimating) { beginPlay(); levelBannerAnimating = true; levelBannerT = 0; return; }
 
-  // Any key starts game from attract/hiscores/globalscores screens
-  if (state === 'hiscores' || state === 'globalscores' || state === 'attract') {
+  // Any key starts game from hiscores/globalscores screens
+  if (state === 'hiscores' || state === 'globalscores') {
     if (_resetConfirm) {
       if (e.key === 'y' || e.key === 'Y') {
         scores = Array.from({length: 10}, () => ({name: 'AAA', score: 0}));
@@ -4859,16 +5066,16 @@ window.addEventListener('keydown', e => {
         attractTmr = setTimeout(() => {
           if (state !== 'hiscores') return;
           if (FIREBASE_URL) { state = 'globalscores'; fetchGlobalScores();
-            attractTmr = setTimeout(() => { if (state === 'globalscores') startAttractPlay(); }, 5000);
-          } else { startAttractPlay(); }
+            attractTmr = setTimeout(() => { if (state === 'globalscores') { state = 'title'; startAttractCycle(); } }, 5000);
+          } else { state = 'title'; startAttractCycle(); }
         }, 5000);
       } else if (e.key === 'n' || e.key === 'N' || e.key === 'Escape') {
         _resetConfirm = false;
         attractTmr = setTimeout(() => {
           if (state !== 'hiscores') return;
           if (FIREBASE_URL) { state = 'globalscores'; fetchGlobalScores();
-            attractTmr = setTimeout(() => { if (state === 'globalscores') startAttractPlay(); }, 5000);
-          } else { startAttractPlay(); }
+            attractTmr = setTimeout(() => { if (state === 'globalscores') { state = 'title'; startAttractCycle(); } }, 5000);
+          } else { state = 'title'; startAttractCycle(); }
         }, 5000);
       }
       return;
@@ -5039,7 +5246,7 @@ requestAnimationFrame(loop);
       // Live update for continuous sounds
       if (ch.key === 'ufo' && SFX.ufoNode) SFX.ufoNode[1].gain.value = 0.02 * v;
       if (ch.key === 'musicTitle' || ch.key === 'musicGame') {
-        const onTitle = (state === 'title' || state === 'hiscores' || state === 'globalscores' || state === 'attract');
+        const onTitle = (state === 'title' || state === 'hiscores' || state === 'globalscores');
         if (ch.key === 'musicTitle' && onTitle)  fadeTitleMusic(0.4 * v, 80);
         if (ch.key === 'musicGame'  && !onTitle) fadeTitleMusic(0.1 * v, 80);
       }
