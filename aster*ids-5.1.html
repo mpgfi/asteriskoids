@@ -96,7 +96,7 @@
 // ============================================================
 
 const W = 983, H = 553;
-const VERSION = '5.13';
+const VERSION = '5.17';
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const dpr = window.devicePixelRatio || 1;
@@ -2111,7 +2111,7 @@ fetch('assets/boss.svg').then(r => r.text()).then(svg => {
 }).catch(() => { _bossImg.src = 'assets/boss.svg'; });
 let shieldPod = null, shieldPodTmr = 1200 + Math.random() * 600;
 let bombPod = null, bombPodTmr = 1800 + Math.random() * 900;
-let hasBomb = false;
+let bombCount = 0;  // smart bombs carried (0–3)
 let _bombRings = [];  // expanding magenta rings on detonation
 let mammoth = null;                          // mammoth asteroid (one at a time)
 let mammothSpawnTmr = 7200;                  // first spawn at ~2 min after L6 reached
@@ -2119,7 +2119,7 @@ let godMode = false;                         // ° tapped 5× to enable dev spaw
 let _godModeTaps = 0, _godModeTapTmr = null;
 let _godWarpInput = null;                    // null = inactive, string = collecting digits
 let boss = null;                             // boss entity (one at a time)
-let shieldActive = false, shieldTmr = 0;  // player shield: absorbs 1 hit, 10 s
+let shieldActive = false, shieldTmr = 0, shieldFarewellTmr = 0;  // player shield
 
 // ── Bonus Stage ──
 // BONUS STAGE — disabled
@@ -2473,9 +2473,9 @@ function initGame() {
   _upgradePending = false; _hyperUpgradePending = false;
   hyperUpgradePod = null; hyperUpgradePodTmr = 2400 + Math.random() * 1600;
   shieldPod = null; shieldPodTmr = 1200 + Math.random() * 600;
-  shieldActive = false; shieldTmr = 0;
+  shieldActive = false; shieldTmr = 0; shieldFarewellTmr = 0;
   bombPod = null; bombPodTmr = 1800 + Math.random() * 900;
-  hasBomb = false; _bombRings = [];
+  bombCount = 0; _bombRings = [];
   stopMammothSound(); mammoth = null; mammothSpawnTmr = 1200;
   stopAlienSound(); boss = null;
   hyperUpgradeActive = false; hyperUpgradeTmr = 0;
@@ -2667,6 +2667,7 @@ function _updateUFOSlots() {
       ufo = null; if (state !== 'bossstage') stopUFOSound();
     }
   }
+  /* UFO2 update — commented out
   if (ufo2) {
     if (ticker % 6 === 0) { ufo2.trail.push({x:ufo2.x,y:ufo2.y}); if(ufo2.trail.length>5)ufo2.trail.shift(); }
     ufo2.x += ufo2.vx; ufo2.y += ufo2.vy;
@@ -2691,11 +2692,12 @@ function _updateUFOSlots() {
       if (ufo2.big) {
         const tx2 = ship.alive ? ship.x : W/2, ty2 = ship.alive ? ship.y : H/2;
         missiles.push(mkMissile(ufo2.x, ufo2.y, tx2, ty2));
-        SFX.whoosh(); ufo2.fireTmr = Math.max(60, 195 - level * 7);  // UFO2: base−25 frames faster
+        SFX.whoosh(); ufo2.fireTmr = Math.max(60, 195 - level * 7);
       } else { ufo2.fireTmr = 55; }
     }
     if (ufo2.x < -80 || ufo2.x > W+80 || ufo2.y < -80 || ufo2.y > H+80) { ufo2 = null; }
   }
+  END UFO2 update */
 }
 
 function update() {
@@ -2905,7 +2907,17 @@ function update() {
   if (upgradeTmr > 0) { upgradeTmr--; if (upgradeTmr === 0) upgradeActive = false; }
   if (hyperUpgradeTmr > 0) { hyperUpgradeTmr--; if (hyperUpgradeTmr === 0) hyperUpgradeActive = false; }
   if (comboZeroAnim > 0) comboZeroAnim--;
-  if (shieldTmr > 0) { shieldTmr--; if (shieldTmr === 0) { shieldActive = false; speak('shields are down!'); for (let _i=0;_i<4;_i++) tone(880,'sine',0.06,0.06*_vol.shield,_i*0.09); } }
+  if (shieldTmr > 0) {
+    shieldTmr--;
+    if (shieldTmr === 0) shieldFarewellTmr = 150;  // hand off to farewell phase
+  } else if (shieldFarewellTmr > 0) {
+    shieldFarewellTmr--;
+    if (shieldFarewellTmr === 0) {
+      shieldActive = false;
+      speak('shields are down!');
+      for (let _i = 0; _i < 4; _i++) tone(880, 'sine', 0.06, 0.06 * _vol.shield, _i * 0.09);
+    }
+  }
 
   // ── Asteroids ──
   asteroids.forEach(a => { a.x+=a.vx; a.y+=a.vy; a.rot+=a.rotV; });
@@ -2952,7 +2964,7 @@ function update() {
   }
   _updateUFOSlots();
 
-  // ── UFO2 (second slot, active from level 10) ──
+  /* UFO2 spawn — commented out
   if (level >= 10) ufo2SpawnTmr--;
   if (level >= 10 && ufo && !ufo2 && ufo2SpawnTmr <= 0 && asteroids.length > 4 && levelGraceTmr <= 0) {
     ufo2 = mkUFO();
@@ -2960,6 +2972,7 @@ function update() {
     if (ufoAppearCount <= 3) ufo2.fireTmr = 999999;
     ufo2SpawnTmr = Math.max(200, 500 - level * 12) + Math.random() * 200;
   }
+  END UFO2 spawn */
 
   // ── HOMING MISSILES ──
   for (const m of missiles) {
@@ -3179,7 +3192,7 @@ function update() {
   // ── BOMB POD ──
   if (!bombPod) {
     bombPodTmr--;
-    if (bombPodTmr <= 0 && asteroids.length > 0 && !hasBomb && !upgradePod && !hyperUpgradePod && !shieldPod && levelGraceTmr <= 0) {
+    if (bombPodTmr <= 0 && asteroids.length > 0 && bombCount < 3 && !upgradePod && !hyperUpgradePod && !shieldPod && levelGraceTmr <= 0) {
       if (asteroids.length > 4 || Math.random() < 0.10) spawnBombPod();
       bombPodTmr = 1800 + Math.random() * 900;
     }
@@ -3187,11 +3200,23 @@ function update() {
     const pod = bombPod;
     const cx = W / 2, cy = H / 2;
     pod.sinePhase += 0.038;
+    // Magenta pixel trail — 2 sparks per frame
+    for (let i = 0; i < 2; i++) {
+      particles.push({
+        x: pod.x + (Math.random() - 0.5) * 5,
+        y: pod.y + (Math.random() - 0.5) * 5,
+        vx: (Math.random() - 0.5) * 0.6, vy: (Math.random() - 0.5) * 0.6,
+        a: Math.random() * Math.PI * 2,
+        life: 1.4 + Math.random() * 0.6,
+        decay: 0.045 + Math.random() * 0.035,
+        len: 1.2, col: '#ff00ff',
+      });
+    }
     if (pod.phase === 'approach') {
+      const curA  = Math.atan2(pod.y - cy, pod.x - cx);
       const distC = Math.hypot(pod.x - cx, pod.y - cy);
-      if (distC <= pod.orbitRadius * 1.05) { pod.phase = 'orbit'; }
+      if (distC <= pod.orbitRadius + 4) { pod.orbitAngle = curA; pod.phase = 'orbit'; }
       else {
-        const curA  = Math.atan2(pod.y - cy, pod.x - cx);
         const t     = Math.min(1, (distC - pod.orbitRadius) / 180);
         const desX  = (cx - pod.x) / distC * t + (-Math.sin(curA) * pod.orbitDir) * (1 - t);
         const desY  = (cy - pod.y) / distC * t + ( Math.cos(curA) * pod.orbitDir) * (1 - t);
@@ -3277,7 +3302,7 @@ function update() {
       }
     }
 
-    // vs UFO2
+    /* UFO2 bullet collision — commented out
     if (!hit && ufo2 && b.own !== 'ufo' && b.life > 0 && hitCircleWrapped(b, ufo2.x, ufo2.y, ufo2.r)) {
       ufo2.hp--; ufo2.hitFlashTmr = 8; ufo2.hitJitterTmr = 3;
       tone(ufo2.type === 'alien' ? 550 : 900, 'square', 0.04, 0.06 * _vol.ufohit);
@@ -3292,6 +3317,7 @@ function update() {
         burst(ufo2.x, ufo2.y, 90, 4, ufo2.color); SFX.medBoom(); ufo2 = null;
       }
     }
+    END UFO2 bullet collision */
 
     // vs mammoth
     if (!hit && mammoth && b.life > 0 && Math.hypot(b.x - mammoth.x, b.y - mammoth.y) < mammoth.r) {
@@ -3373,7 +3399,7 @@ function update() {
         spawnRings(pod.x, pod.y, pod.r * 2, '#008800');
         SFX.medBoom();
         speak('shield!');
-        shieldActive = true; shieldTmr = 600;
+        shieldActive = true; shieldTmr = 1200;
         shieldPod = null;
         b.life = 0;
       }
@@ -3388,7 +3414,7 @@ function update() {
         spawnRings(pod.x, pod.y, pod.r * 2, '#ff00ff');
         SFX.medBoom();
         speak('smart bomb!');
-        hasBomb = true;
+        bombCount = Math.min(3, bombCount + 1);
         bombPod = null;
         b.life = 0;
       }
@@ -3400,7 +3426,7 @@ function update() {
     for (const b of bullets) {
       if (b.own !== 'ufo') continue;
       if (hitCircleWrapped(b, ship.x, ship.y, 10)) {
-        if (shieldActive) { shieldActive = false; shieldTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); speak('shields are down!'); b.life = 0; }
+        if (shieldActive) { shieldActive = false; shieldTmr = 0; shieldFarewellTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); speak('shields are down!'); b.life = 0; }
         else killShip();
         break;
       }
@@ -3413,7 +3439,7 @@ function update() {
       if (m.life <= 0) continue;
       if (Math.hypot(m.x - ship.x, m.y - ship.y) < m.r + 10) {
         m.life = 0;
-        if (shieldActive) { shieldActive = false; shieldTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); speak('shields are down!'); }
+        if (shieldActive) { shieldActive = false; shieldTmr = 0; shieldFarewellTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); speak('shields are down!'); }
         else killShip();
         break;
       }
@@ -3423,24 +3449,25 @@ function update() {
   // ── UFO body vs ship ──
   if (ufo && ship.alive && invTmr <= 0) {
     if (wrapDist(ufo.x, ufo.y, ship.x, ship.y) < ufo.r + 9) {
-      if (shieldActive) { shieldActive = false; shieldTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); speak('shields are down!'); }
+      if (shieldActive) { shieldActive = false; shieldTmr = 0; shieldFarewellTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); speak('shields are down!'); }
       else killShip();
     }
   }
 
-  // ── UFO2 body vs ship ──
+  /* UFO2 body vs ship — commented out
   if (ufo2 && ship.alive && invTmr <= 0) {
     if (wrapDist(ufo2.x, ufo2.y, ship.x, ship.y) < ufo2.r + 9) {
-      if (shieldActive) { shieldActive = false; shieldTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); speak('shields are down!'); }
+      if (shieldActive) { shieldActive = false; shieldTmr = 0; shieldFarewellTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); speak('shields are down!'); }
       else killShip();
     }
   }
+  END UFO2 body vs ship */
 
   // ── Asteroids vs ship ──
   if (ship.alive && invTmr <= 0) {
     for (const a of asteroids) {
       if (wrapDist(a.x, a.y, ship.x, ship.y) < a.r + 9) {
-        if (shieldActive) { shieldActive = false; shieldTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); speak('shields are down!'); break; }
+        if (shieldActive) { shieldActive = false; shieldTmr = 0; shieldFarewellTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); speak('shields are down!'); break; }
         else { killShip(); break; }
       }
     }
@@ -3449,7 +3476,7 @@ function update() {
   // ── Mammoth vs ship ──
   if (mammoth && ship.alive && invTmr <= 0) {
     if (Math.hypot(mammoth.x - ship.x, mammoth.y - ship.y) < mammoth.r + 9) {
-      if (shieldActive) { shieldActive = false; shieldTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); speak('shields are down!'); }
+      if (shieldActive) { shieldActive = false; shieldTmr = 0; shieldFarewellTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); speak('shields are down!'); }
       else killShip();
     }
   }
@@ -3711,8 +3738,8 @@ const BOSS_PATHS = [
 ];
 
 function detonateBomb() {
-  if (!hasBomb || !ship.alive) return;
-  hasBomb = false;
+  if (bombCount <= 0 || !ship.alive) return;
+  bombCount--;
   const blastR = 300;  // fixed kill radius 300px
   const inBlast = (x, y) => Math.hypot(x - ship.x, y - ship.y) < blastR;
   // Wipe asteroids in range
@@ -3722,7 +3749,7 @@ function detonateBomb() {
   });
   // Wipe UFOs / aliens in range
   if (ufo  && inBlast(ufo.x,  ufo.y))  { burst(ufo.x,  ufo.y,  50, 4, ufo.color);  stopUFOSound();   ufo  = null; }
-  if (ufo2 && inBlast(ufo2.x, ufo2.y)) { burst(ufo2.x, ufo2.y, 50, 4, ufo2.color); stopAlienSound(); ufo2 = null; }
+  // if (ufo2 && inBlast(ufo2.x, ufo2.y)) { burst(ufo2.x, ufo2.y, 50, 4, ufo2.color); stopAlienSound(); ufo2 = null; }  // UFO2 commented out
   // Wipe missiles and UFO bullets in range
   missiles = missiles.filter(m => { if (!inBlast(m.x, m.y)) return true; m.life = 0; return false; });
   bullets.forEach(b => { if (b.own === 'ufo' && inBlast(b.x, b.y)) b.life = 0; });
@@ -3866,7 +3893,7 @@ function updateBossStage() {
   // Ship vs boss body — contact kills the player
   if (ship.alive && invTmr <= 0) {
     if (Math.hypot(ship.x - boss.x, ship.y - boss.y) < BOSS_HIT_R + 9) {
-      if (shieldActive) { shieldActive = false; shieldTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); speak('shields are down!'); }
+      if (shieldActive) { shieldActive = false; shieldTmr = 0; shieldFarewellTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); speak('shields are down!'); }
       else killShip();
     }
   }
@@ -3904,7 +3931,7 @@ function updateBossStage() {
         spiralOmega:  (Math.random() < 0.5 ? 1 : -1) * 0.025 * 0.4,
       };
       if (!ufo)       { ufo  = a; startAlienSound(); }
-      else if (!ufo2) { ufo2 = a; }
+      // else if (!ufo2) { ufo2 = a; }  // UFO2 commented out
     };
     const step = boss.firePhase % 4;
     if (step === 0) { fireSalvo(); }
@@ -3943,11 +3970,13 @@ function updateBossStage() {
       ufo = null;
       continue;
     }
+    /* UFO2 boss bullet collision — commented out
     if (ufo2 && hitCircleWrapped(b, ufo2.x, ufo2.y, ufo2.r)) {
       b.life = 0;
       burst(ufo2.x, ufo2.y, 30, 3, ufo2.color); SFX.smlBoom();
       ufo2 = null;
     }
+    END UFO2 boss bullet collision */
   }
 
   // Bullets vs boss
@@ -4005,7 +4034,7 @@ function drawBossStage() {
   drawParticles();
   drawRings();
   if (ufo) _drawUFOFull(ufo);
-  if (ufo2) _drawUFOFull(ufo2);
+  // if (ufo2) _drawUFOFull(ufo2);  // UFO2 commented out
   if (boss) drawBossSprite(boss);
   missiles.forEach(m => { if (m.life > 0) drawMissile(m); });
   bullets.forEach(b => {
@@ -4032,7 +4061,7 @@ function killShip() {
   hyperUpgradeActive = false; hyperUpgradeTmr = 0;
   upgradePod = null; hyperUpgradePod = null; shieldPod = null; bombPod = null;
   _upgradePending = false; _hyperUpgradePending = false;
-  shieldActive = false; shieldTmr = 0;
+  shieldActive = false; shieldTmr = 0; shieldFarewellTmr = 0;
   combo = 0; comboTmr = 0; comboZeroAnim = 0;
   if (ufo) { stopUFOSound(); ufo = null; } ufo2 = null;
   if (mammoth) { stopMammothSound(); mammoth = null; }
@@ -4154,14 +4183,23 @@ function drawShip(s) {
     ctx.strokeStyle = ORG; ctx.lineWidth = 1.5;
     ctx.stroke();
   }
-  // Smart bomb indicator — small pulsing magenta dot above the ship nose
-  if (hasBomb) {
-    const pulse = 0.55 + 0.45 * Math.sin(ticker * 0.18);
-    const [nx, ny] = [s.x + Math.sin(s.angle) * -20, s.y + Math.cos(s.angle) * 20];
-    ctx.beginPath();
-    ctx.arc(nx, ny, 4, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(255,0,255,${pulse.toFixed(2)})`;
-    ctx.fill();
+  // Smart bomb indicator — solid magenta dots at ship nose (one per bomb carried)
+  if (bombCount > 0) {
+    const nx = s.x + Math.sin(s.angle) * -20;
+    const ny = s.y + Math.cos(s.angle) * 20;
+    // Spread dots perpendicular to heading so they never overlap
+    const px = Math.cos(s.angle), py = Math.sin(s.angle);
+    const spacing = 8;
+    const startD = -(bombCount - 1) * spacing / 2;
+    ctx.fillStyle = '#ff00ff';
+    ctx.globalAlpha = 0.85;
+    for (let i = 0; i < bombCount; i++) {
+      const d = startD + i * spacing;
+      ctx.beginPath();
+      ctx.arc(nx + px * d, ny + py * d, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
   ctx.restore();
 }
@@ -4425,7 +4463,15 @@ function drawBombRings() {
 
 function drawShieldRing() {
   if (!shieldActive) return;
-  const pulse = 0.5 + 0.5 * Math.sin(ticker * 0.18);
+  let pulse;
+  if (shieldFarewellTmr > 0) {
+    // Three slow pulses: 0→peak→0, three times, over 150 frames
+    const progress = 1 - shieldFarewellTmr / 150;
+    pulse = 0.5 - 0.5 * Math.cos(progress * 6 * Math.PI);
+  } else {
+    // Rapid flicker: 24 cycles/s = 2.5-frame period
+    pulse = 0.5 + 0.5 * Math.sin(ticker * (2 * Math.PI / 2.5));
+  }
   ctx.save();
   ctx.globalAlpha = 0.4 + pulse * 0.5;
   ctx.strokeStyle = '#004400';
@@ -4439,7 +4485,7 @@ function drawShieldRing() {
 
 function drawPopups() {
   popups.forEach(p => {
-    ctx.globalAlpha = Math.min(1, p.life * 1.5);
+    ctx.globalAlpha = Math.max(0, Math.min(1, p.life * 1.5 - 0.05));
     drawArcadeText(p.text, p.x, p.y, 16, 'center', p.color || '#ff00ff');
   });
   ctx.globalAlpha = 1;
@@ -4469,6 +4515,27 @@ function drawHUD() {
     ];
     const _c = 'rgba(255,80,80,0.55)';
     _gl.forEach((line, i) => vText(line, 10, H - 30 - (_gl.length - 1 - i) * 11, 7, 'left', 1, _c));
+
+    // Countdown timers — bottom right, one line per active timer
+    const _s = (n) => (Math.max(0, n) / 60).toFixed(1) + 's';
+    const _ct = [];
+    // Active effects
+    if (shieldFarewellTmr > 0)  _ct.push(['SHIELD OUT',   _s(shieldFarewellTmr)]);
+    else if (shieldTmr > 0)     _ct.push(['SHIELD',        _s(shieldTmr)]);
+    if (upgradeTmr > 0)         _ct.push(['DUAL FIRE',     _s(upgradeTmr)]);
+    if (hyperUpgradeTmr > 0)    _ct.push(['HYPER FIRE',    _s(hyperUpgradeTmr)]);
+    if (invTmr > 0)             _ct.push(['INVINCIBLE',    _s(invTmr)]);
+    if (levelGraceTmr > 0)      _ct.push(['GRACE',         _s(levelGraceTmr)]);
+    // Spawn countdowns (only when entity is absent)
+    if (!ufo)                   _ct.push(['UFO',           _s(ufoSpawnTmr)]);
+    // if (!ufo2)               _ct.push(['UFO2',          _s(ufo2SpawnTmr)]);  // UFO2 commented out
+    if (!mammoth)               _ct.push(['MAMMOTH',       _s(mammothSpawnTmr)]);
+    if (!upgradePod)            _ct.push(['UPGRD POD',     _s(upgradePodTmr)]);
+    if (!hyperUpgradePod)       _ct.push(['HYPER POD',     _s(hyperUpgradePodTmr)]);
+    if (!shieldPod)             _ct.push(['SHIELD POD',    _s(shieldPodTmr)]);
+    if (!bombPod)               _ct.push(['BOMB POD',      _s(bombPodTmr)]);
+    _ct.forEach(([label, val], i) =>
+      vText(label + '  ' + val, W - 10, H - 30 - i * 11, 7, 'right', 1, _c));
   }
   // God Mode level warp prompt
   if (_godWarpInput !== null) {
@@ -4506,6 +4573,18 @@ function drawHUD() {
     if (alpha > 0) xfPoly(SHIP.map(([px,py])=>[px*sc, py*sc]), lx, ly, 0, alpha);
   }
   if (_lifeAnim && _lifeAnim.frames <= 0) _lifeAnim = null;
+  // Smart bomb counter — below lives icons
+  if (bombCount > 0) {
+    vText('SMART BOMBS', 13, 67, 8, 'left', 0.7, '#ff00ff');
+    ctx.fillStyle = '#ff00ff';
+    ctx.globalAlpha = 0.85;
+    for (let i = 0; i < bombCount; i++) {
+      ctx.beginPath();
+      ctx.arc(105 + i * 16, 67, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
   // Cannon heat gauge — canvas arcs
   drawHeatGauge();
   /* ── old canvas bar (kept for easy rollback) ──────────────────────────
@@ -4746,7 +4825,7 @@ function drawPaused() {
   // Draw the frozen game scene underneath
   asteroids.forEach(drawAsteroid);
   if (boss) drawBossSprite(boss);
-  if (ufo) drawUFO(ufo); if (ufo2) drawUFO(ufo2);
+  if (ufo) drawUFO(ufo); // if (ufo2) drawUFO(ufo2);  // UFO2 commented out
   bullets.forEach(b => { ctx.globalAlpha = b.own==='ufo' ? 1 : 0.2+b.life/27*0.8; drawBullet(b, b.own === 'ufo' ? '#ff00ff' : (b.col || '#3CC8A4')); }); ctx.globalAlpha=1;
   drawParticles();
   drawShip(ship);
@@ -4763,7 +4842,7 @@ function drawQuitPrompt() {
   // Draw the frozen game scene underneath
   asteroids.forEach(drawAsteroid);
   if (boss) drawBossSprite(boss);
-  if (ufo) drawUFO(ufo); if (ufo2) drawUFO(ufo2);
+  if (ufo) drawUFO(ufo); // if (ufo2) drawUFO(ufo2);  // UFO2 commented out
   bullets.forEach(b => { ctx.globalAlpha = b.own==='ufo' ? 1 : 0.2+b.life/27*0.8; drawBullet(b, b.own === 'ufo' ? '#ff00ff' : (b.col || '#3CC8A4')); }); ctx.globalAlpha=1;
   drawParticles();
   drawShip(ship);
@@ -4859,7 +4938,7 @@ function loop(ts) {
       drawMammoth();
       drawRings();
       if (ufo) _drawUFOFull(ufo);
-      if (ufo2) _drawUFOFull(ufo2);
+      // if (ufo2) _drawUFOFull(ufo2);  // UFO2 commented out
       missiles.forEach(m => { if (m.life > 0) drawMissile(m); });
       bullets.forEach(b => {
         ctx.globalAlpha = b.own==='ufo' ? 1 : 0.2+b.life/27*0.8;
@@ -5100,7 +5179,7 @@ window.addEventListener('keydown', e => {
       if (state === 'playing') startBeat();
       if (boss) startAlienSound();
       else if (ufo) { if (ufo.type === 'alien') startAlienSound(); else startUFOSound(ufo.big); }
-      else if (ufo2) { if (ufo2.type === 'alien') startAlienSound(); else startUFOSound(ufo2.big); }
+      // else if (ufo2) { ... }  // UFO2 commented out
       return;
     }
   }
@@ -5130,7 +5209,7 @@ window.addEventListener('keydown', e => {
     if (e.key === 'y' || e.key === 'Y') {
       // Abandon game — back to title
       stopBeat(); stopUFOSound(); stopAlienSound();
-      asteroids = []; bullets = []; missiles = []; particles = []; popups = []; ufo = null; ufo2 = null; boss = null; upgradePod = null; shieldPod = null; shieldActive = false;
+      asteroids = []; bullets = []; missiles = []; particles = []; popups = []; ufo = null; ufo2 = null; boss = null; upgradePod = null; shieldPod = null; shieldActive = false; shieldTmr = 0; shieldFarewellTmr = 0;
       state = 'title';
       startAttractCycle();
     } else if (e.key === 'n' || e.key === 'N' || e.key === 'Escape') {
@@ -5139,7 +5218,7 @@ window.addEventListener('keydown', e => {
       if (state === 'playing' || state === 'dead') startBeat();
       if (boss) startAlienSound();
       else if (ufo) { if (ufo.type === 'alien') startAlienSound(); else startUFOSound(ufo.big); }
-      else if (ufo2) { if (ufo2.type === 'alien') startAlienSound(); else startUFOSound(ufo2.big); }
+      // else if (ufo2) { ... }  // UFO2 commented out
     }
     return;
   }
