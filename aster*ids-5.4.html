@@ -96,7 +96,7 @@
 // ============================================================
 
 const W = 983, H = 553;
-const VERSION = '5.3';
+const VERSION = '5.4';
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const dpr = window.devicePixelRatio || 1;
@@ -2261,7 +2261,7 @@ function mkUFO() {
 
 function mkMissile(x, y, tx, ty) {
   const angle = Math.atan2(ty - y, tx - x);
-  return { x, y, vx: Math.cos(angle) * 0.4, vy: Math.sin(angle) * 0.4, angle, r: 12, life: 720 };
+  return { x, y, vx: Math.cos(angle) * 0.4, vy: Math.sin(angle) * 0.4, angle, r: 12, life: 360, exploded: false };
 }
 
 function spawnUpgradePod() {
@@ -2850,7 +2850,7 @@ function update() {
       if (heat < 0.5) heatWasCut = false;
     } else if (firing) {
       // buildup: linear 0→0.5, eased 0.5→1
-      const base = (upgradeActive || hyperUpgradeActive) ? 0.0048 : 0.016;
+      const base = (upgradeActive || hyperUpgradeActive) ? 0.00336 : 0.0112; // −30% heat buildup
       heat = Math.min(1, heat + (heat < 0.5 ? base : Math.max(0.0002, base * 2 * (1 - heat))));
       if (heat >= 1) {
         heat = 1; heatCutoutTmr = 108; heatWasCut = true;
@@ -2994,7 +2994,7 @@ function update() {
     m.vx += Math.cos(m.angle) * 0.04;
     m.vy += Math.sin(m.angle) * 0.04;
     const mspd = Math.hypot(m.vx, m.vy);
-    const mmax = m.maxSpd || 3.5;
+    const mmax = m.maxSpd || 1.6;
     if (mspd > mmax) { m.vx = m.vx / mspd * mmax; m.vy = m.vy / mspd * mmax; }
     m.x += m.vx; m.y += m.vy;
     wrap(m);
@@ -3009,7 +3009,7 @@ function update() {
       if (Math.hypot(m.x - a.x, m.y - a.y) < m.r + a.r) {
         burst(m.x, m.y, 50, 2.5, ORG);
         SFX.smlBoom();
-        m.life = 0;
+        m.life = 0; m.exploded = true;
         // Split / destroy the asteroid
         const pts = Math.round([0, 20, 50, 100][a.size] * (1 + (level - 1) * 0.05));
         const awarded = Math.round(pts * (1 + combo));
@@ -3030,6 +3030,14 @@ function update() {
     }
   }
 
+  // Missiles that expired naturally detonate
+  missiles.forEach(m => {
+    if (m.life <= 0 && !m.exploded) {
+      burst(m.x, m.y, 50, 2.5, ORG);
+      SFX.smlBoom();
+      m.exploded = true;
+    }
+  });
   missiles = missiles.filter(m => m.life > 0);
 
   // ── UPGRADE POD ──
@@ -3392,7 +3400,7 @@ function update() {
           SFX.smlBoom();
           score += 200; checkHiScore();
           popups.push({ x: m.x, y: m.y, text: '200', life: 1 });
-          m.life = 0; b.life = 0; hit = true;
+          m.life = 0; m.exploded = true; b.life = 0; hit = true;
           break;
         }
       }
@@ -3477,7 +3485,7 @@ function update() {
       if (m.life <= 0) continue;
       if (Math.hypot(m.x - ship.x, m.y - ship.y) < m.r + 10) {
         burst(m.x, m.y, 50, 2.5, ORG); SFX.smlBoom();
-        m.life = 0;
+        m.life = 0; m.exploded = true;
         if (shieldActive) { shieldActive = false; shieldTmr = 0; shieldFarewellTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); speak('shields are down!'); }
         else killShip();
         break;
@@ -3790,7 +3798,7 @@ function detonateBomb() {
   if (ufo  && inBlast(ufo.x,  ufo.y))  { burst(ufo.x,  ufo.y,  50, 4, ufo.color);  stopUFOSound();   ufo  = null; }
   // if (ufo2 && inBlast(ufo2.x, ufo2.y)) { burst(ufo2.x, ufo2.y, 50, 4, ufo2.color); stopAlienSound(); ufo2 = null; }  // UFO2 commented out
   // Wipe missiles and UFO bullets in range
-  missiles = missiles.filter(m => { if (!inBlast(m.x, m.y)) return true; m.life = 0; return false; });
+  missiles = missiles.filter(m => { if (!inBlast(m.x, m.y)) return true; m.life = 0; m.exploded = true; return false; });
   bullets.forEach(b => { if (b.own === 'ufo' && inBlast(b.x, b.y)) b.life = 0; });
   // Mammoth in range: knock 30% off HP
   if (mammoth && inBlast(mammoth.x, mammoth.y)) {
@@ -3990,7 +3998,7 @@ function updateBossStage() {
     boss.missileDelay--;
   } else if (boss.pendingMissiles.length > 0) {
     const a = boss.pendingMissiles.shift();
-    missiles.push({ x: boss.x, y: boss.y, vx: Math.cos(a)*0.6, vy: Math.sin(a)*0.6, angle: a, r: 8, life: 900, maxSpd: 1.75 });
+    missiles.push({ x: boss.x, y: boss.y, vx: Math.cos(a)*0.6, vy: Math.sin(a)*0.6, angle: a, r: 8, life: 900, maxSpd: 1.2 });
     SFX.whoosh();
     if (boss.pendingMissiles.length > 0) boss.missileDelay = 12;
   }
@@ -4038,7 +4046,7 @@ function updateBossStage() {
       if (m.life > 0 && Math.hypot(b.x - m.x, b.y - m.y) < m.r + 4) {
         burst(m.x, m.y, 50, 2.5, ORG);
         SFX.smlBoom();
-        m.life = 0; b.life = 0;
+        m.life = 0; m.exploded = true; b.life = 0;
         break;
       }
     }
@@ -5182,6 +5190,18 @@ window.addEventListener('keydown', e => {
   // will pick it up and start scheduling notes on its next iteration (~200ms).
   if (ac && ac.state === 'suspended') ac.resume();
 
+  // God Mode: M — spawn missiles (must come before music toggle so it takes priority)
+  if (godMode && (e.key === 'm' || e.key === 'M') && (state === 'playing' || state === 'bossstage')) {
+    const tx = ship.alive ? ship.x : W / 2, ty = ship.alive ? ship.y : H / 2;
+    for (let _i = 0; _i < 5; _i++) {
+      const _edge = Math.floor(Math.random() * 4);
+      const _mx = _edge < 2 ? Math.random() * W : (_edge === 2 ? -20 : W + 20);
+      const _my = _edge < 2 ? (_edge === 0 ? -20 : H + 20) : Math.random() * H;
+      missiles.push(mkMissile(_mx, _my, tx, ty));
+    }
+    SFX.whoosh(); return;
+  }
+
   // M — mute / unmute music (skip in name entry so M is usable as an initial)
   if ((e.key === 'm' || e.key === 'M') && state !== 'nameentry') {
     _musicOn = !_musicOn;
@@ -5246,7 +5266,7 @@ window.addEventListener('keydown', e => {
   }
 
   // God Mode spawn keys (playing state only)
-  if (godMode && state === 'playing') {
+  if (godMode && (state === 'playing' || state === 'bossstage')) {
     if (e.key === 'i' || e.key === 'I') { spawnShieldPod(); return; }
     if (e.key === 'd' || e.key === 'D') { spawnUpgradePod(); return; }
     if (e.key === 'p' || e.key === 'P') { spawnHyperUpgradePod(); return; }
@@ -5254,7 +5274,7 @@ window.addEventListener('keydown', e => {
     if (e.key === 'k' || e.key === 'K') { stopMammothSound(); mammoth = mkMammoth(); startMammothSound(); speak('massive object entering sector!'); return; }
     if (e.key === 'u' || e.key === 'U') { _godSpawnUFO('big');   return; }
     if (e.key === 'l' || e.key === 'L') { _godSpawnUFO('alien'); return; }
-    if (e.key === 'c' || e.key === 'C') { startBossStage();  return; }
+    if (e.key === 'c' || e.key === 'C') { if (state === 'playing') startBossStage(); return; }
   }
 
   // X — detonate smart bomb (playing or boss stage)
