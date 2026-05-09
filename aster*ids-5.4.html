@@ -2183,7 +2183,7 @@ function mkAsteroid(x, y, size) {
     const r = R*(0.6 + Math.random()*0.75);
     return [Math.cos(a)*r, Math.sin(a)*r];
   });
-  const spd = Math.max(0.55, ((0.5 + Math.random()*0.8) * (4-size) * 0.55 + 0.2) * 0.75 * 0.9 * 1.1 * Math.pow(1.03, level - 1));
+  const spd = Math.max(0.55, ((0.5 + Math.random()*0.8) * (4-size) * 0.55 + 0.2) * 0.75 * 0.9 * 1.1 * 0.8 * Math.pow(1.03, level - 1));
   const dir = Math.random()*Math.PI*2;
   return {
     x, y,
@@ -2935,6 +2935,36 @@ function update() {
     asteroids = asteroids.filter(a => a.x > -a.r*2 && a.x < W+a.r*2 && a.y > -a.r*2 && a.y < H+a.r*2);
   } else {
     asteroids.forEach(a => { a.escaping = false; wrap(a); });
+  }
+
+  // ── Asteroid–asteroid elastic collisions ──
+  for (let _i = 0; _i < asteroids.length - 1; _i++) {
+    const a1 = asteroids[_i];
+    for (let _j = _i + 1; _j < asteroids.length; _j++) {
+      const a2 = asteroids[_j];
+      const minDist = a1.r + a2.r;
+      // Shortest delta accounting for screen wrap
+      let dx = a2.x - a1.x, dy = a2.y - a1.y;
+      if (dx >  W / 2) dx -= W; else if (dx < -W / 2) dx += W;
+      if (dy >  H / 2) dy -= H; else if (dy < -H / 2) dy += H;
+      const dist = Math.hypot(dx, dy);
+      if (dist >= minDist || dist < 0.001) continue;
+      // Collision normal (unit vector from a1 → a2)
+      const nx = dx / dist, ny = dy / dist;
+      // Relative velocity along normal — skip if already separating
+      const dvn = (a1.vx - a2.vx) * nx + (a1.vy - a2.vy) * ny;
+      if (dvn <= 0) continue;
+      // Mass ∝ area (r²)
+      const m1 = a1.r * a1.r, m2 = a2.r * a2.r, mt = m1 + m2;
+      // Elastic impulse
+      const imp = 2 * dvn / mt;
+      a1.vx -= imp * m2 * nx;  a1.vy -= imp * m2 * ny;
+      a2.vx += imp * m1 * nx;  a2.vy += imp * m1 * ny;
+      // Positional correction — push apart to resolve overlap
+      const corr = (minDist - dist) * 0.5;
+      a1.x -= nx * corr * m2 / mt;  a1.y -= ny * corr * m2 / mt;
+      a2.x += nx * corr * m1 / mt;  a2.y += ny * corr * m1 / mt;
+    }
   }
 
   // ── Mammoth asteroid ──
