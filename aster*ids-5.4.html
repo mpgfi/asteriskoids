@@ -3036,7 +3036,7 @@ function update() {
     if (m.life <= 0) continue;
     for (let ai = asteroids.length - 1; ai >= 0; ai--) {
       const a = asteroids[ai];
-      if (Math.hypot(m.x - a.x, m.y - a.y) < m.r + a.r) {
+      if (hitCircleWrapped(m, a.x, a.y, m.r + a.r)) {
         burst(m.x, m.y, 50, 2.5, ORG);
         SFX.smlBoom();
         m.life = 0; m.exploded = true;
