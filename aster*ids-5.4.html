@@ -3564,11 +3564,15 @@ function update() {
   if (asteroids.length === 0 && !ufo && !mammoth && state === 'playing') {
     stopBeat(); stopUFOSound();
     bullets = []; missiles = [];
-    upgradePod = null; upgradeActive = false; upgradeTmr = 0; _upgradeGunLeft = false;
-    upgradePodTmr = 900 + Math.random() * 600;
-    hyperUpgradePod = null; hyperUpgradeActive = false; hyperUpgradeTmr = 0;
-    hyperUpgradePodTmr = 2400 + Math.random() * 1200;
-    shieldPod = null; shieldPodTmr = 1200 + Math.random() * 600;
+    // Pods survive the level transition — don't clear active pods here.
+    // (Clearing them caused the smart bomb to appear to "hit" pods: the bomb
+    //  kills the last asteroids → level ends → pods disappear, looking like the
+    //  bomb destroyed them.  Players can still collect active pods next level.)
+    upgradeActive = false; upgradeTmr = 0; _upgradeGunLeft = false;
+    if (!upgradePod) upgradePodTmr = 900 + Math.random() * 600;
+    hyperUpgradeActive = false; hyperUpgradeTmr = 0;
+    if (!hyperUpgradePod) hyperUpgradePodTmr = 2400 + Math.random() * 1200;
+    if (!shieldPod) shieldPodTmr = 1200 + Math.random() * 600;
     stopMammothSound(); mammoth = null; mammothSpawnTmr = Math.round(Math.max(3600, 9000 - (level - 6) * 300) * (0.8 + Math.random() * 0.4));
     levelBonus = Math.round(levelTimer / 60 * (5000 + 200 * (level - 1)));
     score += levelBonus;
