@@ -2993,7 +2993,7 @@ function update() {
   // ── UFO / ALIEN ──
   // UFOs appear from level 2; spawn rate scales with level.
   ufoSpawnTmr -= 1;
-  if (level >= 2 && !ufo && ufoSpawnTmr <= 0 && asteroids.length > 4 && levelGraceTmr <= 0) {
+  if (level >= 2 && !ufo && ufoSpawnTmr <= 0 && asteroids.length > 4 && levelGraceTmr <= 0 && state !== 'bossstage') {
     ufo = mkUFO();
     ufoAppearCount++;
     if (ufoAppearCount <= 3) ufo.fireTmr = 999999;  // first 3 appearances: no firing
@@ -3868,6 +3868,19 @@ function detonateBomb() {
       boss = null; missiles = [];
     }
   }
+  // Pods in range: detonate visually but grant NO upgrade
+  if (upgradePod && inBlast(upgradePod.x, upgradePod.y)) {
+    burst(upgradePod.x, upgradePod.y, 24, 4, '#FFFF00'); SFX.smlBoom(); upgradePod = null;
+  }
+  if (hyperUpgradePod && inBlast(hyperUpgradePod.x, hyperUpgradePod.y)) {
+    burst(hyperUpgradePod.x, hyperUpgradePod.y, 24, 4, '#00FFFF'); SFX.smlBoom(); hyperUpgradePod = null;
+  }
+  if (shieldPod && inBlast(shieldPod.x, shieldPod.y)) {
+    burst(shieldPod.x, shieldPod.y, 24, 4, '#008800'); SFX.smlBoom(); shieldPod = null;
+  }
+  if (bombPod && inBlast(bombPod.x, bombPod.y)) {
+    burst(bombPod.x, bombPod.y, 24, 4, '#ff00ff'); SFX.smlBoom(); bombPod = null;
+  }
   // 20 rings expanding to blast radius — visually marks the kill zone
   for (let i = 0; i < 20; i++)
     _bombRings.push({ r: i * (blastR / 22), maxR: blastR, spd: 4 + i * 0.9, alpha: 1 });
@@ -4730,6 +4743,10 @@ function drawHUD() {
     if (!hyperUpgradePod)       _ct.push(['HYPER POD',     _s(hyperUpgradePodTmr)]);
     if (!shieldPod)             _ct.push(['SHIELD POD',    _s(shieldPodTmr)]);
     if (!bombPod)               _ct.push(['BOMB POD',      _s(bombPodTmr)]);
+    // Active missiles — individually numbered with remaining lifetime
+    missiles.forEach((m, i) => {
+      if (m.life > 0) _ct.push(['MSL ' + (i + 1), _s(m.life)]);
+    });
     _ct.forEach(([label, val], i) =>
       vText(label + '  ' + val, W - 10, H - 30 - i * 11, 7, 'right', 1, _c));
   }
