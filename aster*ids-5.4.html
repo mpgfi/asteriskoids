@@ -4842,14 +4842,15 @@ function drawTargetingLaser() {
   ctx.lineTo(ex, ey);
   ctx.stroke();
 
-  // Glowing impact spot on nearest hit surface
+  // Glowing impact spot (laserspot.svg: 3 concentric filled circles, 5×5 viewBox)
   if (tHit < tEdge) {
     const hx = nx + dx * tHit, hy = ny + dy * tHit;
-    ctx.strokeStyle = '#ff0000';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(hx, hy, 3, 0, Math.PI * 2);
-    ctx.stroke();
+    ctx.save();
+    ctx.translate(hx - 2.5, hy - 2.5);  // centre the 5×5 sprite on the hit point
+    ctx.beginPath(); ctx.arc(2.5, 2.5, 2.3, 0, Math.PI * 2); ctx.fillStyle = '#e52421'; ctx.fill();
+    ctx.beginPath(); ctx.arc(2.5, 2.5, 1.7, 0, Math.PI * 2); ctx.fillStyle = '#f29093'; ctx.fill();
+    ctx.beginPath(); ctx.arc(2.5, 2.5, 0.8, 0, Math.PI * 2); ctx.fillStyle = '#ffffff'; ctx.fill();
+    ctx.restore();
   }
   ctx.restore();
 }
