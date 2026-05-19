@@ -2121,6 +2121,8 @@ let shieldPod = null, shieldPodTmr = 1200 + Math.random() * 600;
 let bombPod = null, bombPodTmr = 1800 + Math.random() * 900;
 let bombCount = 0;  // smart bombs carried (0–3)
 let _bombRings = [];  // expanding magenta rings on detonation
+let laserPod = null, laserPodTmr = 600 + Math.random() * 400;   // targeting laser pod
+let laserActive = false, laserTmr = 0;                           // active beam state
 let mammoth = null;                          // mammoth asteroid (one at a time)
 let mammothSpawnTmr = 7200;                  // first spawn at ~2 min after L6 reached
 let godMode = false;                         // ° tapped 5× to enable dev spawn keys
@@ -2373,6 +2375,32 @@ function spawnBombPod() {
   };
 }
 
+function spawnLaserPod() {
+  const edge = Math.floor(Math.random() * 4);
+  let sx, sy;
+  if      (edge === 0) { sx = Math.random() * W; sy = -50; }
+  else if (edge === 1) { sx = Math.random() * W; sy = H + 50; }
+  else if (edge === 2) { sx = -50;    sy = Math.random() * H; }
+  else                 { sx = W + 50; sy = Math.random() * H; }
+  const cx = W / 2, cy = H / 2;
+  const orbitRadius = Math.min(W, H) * 0.324;
+  const podSpd = orbitRadius * 0.0175;
+  const orbitAngle = Math.atan2(sy - cy, sx - cx);
+  const orbitDir   = Math.random() < 0.5 ? 1 : -1;
+  const initA = Math.atan2(cy - sy, cx - sx);
+  laserPod = {
+    x: sx, y: sy,
+    vx: Math.cos(initA) * podSpd, vy: Math.sin(initA) * podSpd,
+    spd: podSpd,
+    phase: 'approach',
+    orbitAngle, orbitAngleTravelled: 0,
+    orbitDir, orbitRadius,
+    sinePhase: Math.random() * Math.PI * 2,
+    rot: 0, rotSpd: (Math.random() < 0.5 ? 1 : -1) * 0.025, r: 10,
+    _exitVx: 0, _exitVy: 0,
+  };
+}
+
 // Smoothly rotate pod velocity toward (desX, desY) by at most maxTurn rad/frame.
 // Produces arc-shaped paths rather than instant direction changes.
 function steerPod(pod, desX, desY) {
@@ -2484,6 +2512,8 @@ function initGame() {
   shieldActive = false; shieldTmr = 0; shieldFarewellTmr = 0;
   bombPod = null; bombPodTmr = 1800 + Math.random() * 900;
   bombCount = 0; _bombRings = [];
+  laserPod = null; laserPodTmr = 600 + Math.random() * 400;
+  laserActive = false; laserTmr = 0;
   stopMammothSound(); mammoth = null; mammothSpawnTmr = 1200;
   stopAlienSound(); boss = null;
   hyperUpgradeActive = false; hyperUpgradeTmr = 0;
@@ -2914,6 +2944,7 @@ function update() {
   if (invTmr  > 0) invTmr--;
   if (upgradeTmr > 0) { upgradeTmr--; if (upgradeTmr === 0) upgradeActive = false; }
   if (hyperUpgradeTmr > 0) { hyperUpgradeTmr--; if (hyperUpgradeTmr === 0) hyperUpgradeActive = false; }
+  if (laserTmr > 0) { laserTmr--; if (laserTmr === 0) { laserActive = false; speak('targeting offline!'); } }
   if (comboZeroAnim > 0) comboZeroAnim--;
   if (shieldTmr > 0) {
     shieldTmr--;
@@ -3318,6 +3349,58 @@ function update() {
     }
   }
 
+  // ── LASER POD ──
+  if (!laserPod) {
+    laserPodTmr--;
+    if (laserPodTmr <= 0 && (asteroids.length > 0 || state === 'bossstage') && levelGraceTmr <= 0) {
+      if (state === 'bossstage' || asteroids.length > 4 || Math.random() < 0.15) spawnLaserPod();
+      laserPodTmr = 600 + Math.random() * 400;
+    }
+  } else {
+    const pod = laserPod;
+    const cx = W / 2, cy = H / 2;
+    pod.sinePhase += 0.038;
+    pod.rot += pod.rotSpd;
+    // Red pixel trail
+    for (let i = 0; i < 2; i++) {
+      particles.push({
+        x: pod.x + (Math.random() - 0.5) * 5, y: pod.y + (Math.random() - 0.5) * 5,
+        vx: (Math.random() - 0.5) * 0.6, vy: (Math.random() - 0.5) * 0.6,
+        a: Math.random() * Math.PI * 2,
+        life: 1.4 + Math.random() * 0.6, decay: 0.045 + Math.random() * 0.035,
+        len: 1.2, col: '#FF0000',
+      });
+    }
+    if (pod.phase === 'approach') {
+      const curA  = Math.atan2(pod.y - cy, pod.x - cx);
+      const distC = Math.hypot(pod.x - cx, pod.y - cy);
+      if (distC <= pod.orbitRadius + 4) { pod.orbitAngle = curA; pod.phase = 'orbit'; }
+      else {
+        const t    = Math.min(1, (distC - pod.orbitRadius) / 180);
+        const desX = (cx - pod.x) / distC * t + (-Math.sin(curA) * pod.orbitDir) * (1 - t);
+        const desY = (cy - pod.y) / distC * t + ( Math.cos(curA) * pod.orbitDir) * (1 - t);
+        steerPod(pod, desX, desY); pod.x += pod.vx; pod.y += pod.vy;
+      }
+    } else if (pod.phase === 'orbit') {
+      const angSpd = 0.0175 * pod.orbitDir;
+      pod.orbitAngle += angSpd; pod.orbitAngleTravelled += Math.abs(angSpd);
+      const wobble = Math.sin(pod.sinePhase * 2.7) * 9 + Math.sin(pod.sinePhase * 0.9) * 4;
+      const r = pod.orbitRadius + wobble;
+      pod.x = cx + Math.cos(pod.orbitAngle) * r; pod.y = cy + Math.sin(pod.orbitAngle) * r;
+      pod._exitVx = -Math.sin(pod.orbitAngle) * pod.orbitDir * pod.spd;
+      pod._exitVy =  Math.cos(pod.orbitAngle) * pod.orbitDir * pod.spd;
+      if (pod.orbitAngleTravelled >= Math.PI * 6) { pod.phase = 'exit'; pod.vx = pod._exitVx; pod.vy = pod._exitVy; }
+    } else {
+      const curA  = Math.atan2(pod.y - cy, pod.x - cx);
+      const distC = Math.hypot(pod.x - cx, pod.y - cy);
+      const w     = Math.min(1, (distC - pod.orbitRadius) / 140);
+      const desX  = (-Math.sin(curA) * pod.orbitDir) * (1 - w) + (pod.x - cx) / distC * w;
+      const desY  = ( Math.cos(curA) * pod.orbitDir) * (1 - w) + (pod.y - cy) / distC * w;
+      steerPod(pod, desX, desY); pod.x += pod.vx; pod.y += pod.vy;
+      if (pod.x < -120 || pod.x > W + 120 || pod.y < -120 || pod.y > H + 120) laserPod = null;
+    }
+  }
+
   // ── Bomb rings update ──
   _bombRings = _bombRings.filter(ring => {
     ring.r += ring.spd; ring.spd *= 1.04;
@@ -3495,6 +3578,20 @@ function update() {
         b.life = 0;
       }
     }
+    // vs laser pod — must be shot to collect
+    if (!hit && laserPod && b.life > 0) {
+      const pod = laserPod;
+      if (Math.hypot(b.x - pod.x, b.y - pod.y) < pod.r + 6) {
+        popups.push({ x: pod.x, y: pod.y, text: 'TARGETING LASER', life: 1, color: '#FF0000' });
+        burst(pod.x, pod.y, 24, 4, '#FF0000');
+        spawnRings(pod.x, pod.y, pod.r * 2, '#FF0000');
+        SFX.medBoom();
+        speak('targeting laser!');
+        laserActive = true; laserTmr = 1800;
+        laserPod = null;
+        b.life = 0;
+      }
+    }
   }
 
   // ── UFO bullets vs ship ──
@@ -3573,6 +3670,7 @@ function update() {
     hyperUpgradeActive = false; hyperUpgradeTmr = 0;
     if (!hyperUpgradePod) hyperUpgradePodTmr = 2400 + Math.random() * 1200;
     if (!shieldPod) shieldPodTmr = 1200 + Math.random() * 600;
+    if (!laserPod) laserPodTmr = 600 + Math.random() * 400;
     stopMammothSound(); mammoth = null; mammothSpawnTmr = Math.round(Math.max(3600, 9000 - (level - 6) * 300) * (0.8 + Math.random() * 0.4));
     levelBonus = Math.round(levelTimer / 60 * (5000 + 200 * (level - 1)));
     score += levelBonus;
@@ -3881,6 +3979,9 @@ function detonateBomb() {
   if (bombPod && inBlast(bombPod.x, bombPod.y)) {
     burst(bombPod.x, bombPod.y, 24, 4, '#ff00ff'); SFX.smlBoom(); bombPod = null;
   }
+  if (laserPod && inBlast(laserPod.x, laserPod.y)) {
+    burst(laserPod.x, laserPod.y, 24, 4, '#FF0000'); SFX.smlBoom(); laserPod = null;
+  }
   // 20 rings expanding to blast radius — visually marks the kill zone
   for (let i = 0; i < 20; i++)
     _bombRings.push({ r: i * (blastR / 22), maxR: blastR, spd: 4 + i * 0.9, alpha: 1 });
@@ -3939,7 +4040,7 @@ function startBossStage() {
     asteroids.push(_a);
   }
   stopUFOSound(); stopMammothSound(); stopBeat();
-  upgradePod = null; hyperUpgradePod = null; shieldPod = null; bombPod = null;
+  upgradePod = null; hyperUpgradePod = null; shieldPod = null; bombPod = null; laserPod = null;
   // Reset pod timers to short values so pods appear within the boss fight window
   upgradePodTmr     = 300 + Math.random() * 300;   // ~5–10 s
   hyperUpgradePodTmr= 600 + Math.random() * 400;   // ~10–17 s
@@ -4203,6 +4304,17 @@ function updateBossStage() {
         bombPod = null; b.life = 0; continue;
       }
     }
+    if (laserPod) {
+      const pod = laserPod;
+      if (Math.hypot(b.x - pod.x, b.y - pod.y) < pod.r + 6) {
+        popups.push({ x: pod.x, y: pod.y, text: 'TARGETING LASER', life: 1, color: '#FF0000' });
+        burst(pod.x, pod.y, 24, 4, '#FF0000');
+        spawnRings(pod.x, pod.y, pod.r * 2, '#FF0000');
+        SFX.medBoom(); speak('targeting laser!');
+        laserActive = true; laserTmr = 1800;
+        laserPod = null; b.life = 0; continue;
+      }
+    }
   }
 }
 
@@ -4248,12 +4360,14 @@ function drawBossStage() {
     drawBullet(b, b.col || '#3CC8A4');
   }); ctx.globalAlpha = 1;
   drawPopups();
+  drawTargetingLaser();
   drawShieldRing();
   drawBombRings();
   if (upgradePod)      drawUpgradePod(upgradePod);
   if (hyperUpgradePod) drawHyperUpgradePod(hyperUpgradePod);
   if (shieldPod)       drawShieldPod(shieldPod);
   if (bombPod)         drawBombPod(bombPod);
+  if (laserPod)        drawLaserPod(laserPod);
   drawShip(ship);
   drawHUD();
   if (boss) drawBossHealthBar();
@@ -4268,9 +4382,10 @@ function killShip() {
   ship.alive = false;
   upgradeActive = false; upgradeTmr = 0;
   hyperUpgradeActive = false; hyperUpgradeTmr = 0;
-  upgradePod = null; hyperUpgradePod = null; shieldPod = null; bombPod = null;
+  upgradePod = null; hyperUpgradePod = null; shieldPod = null; bombPod = null; laserPod = null;
   _upgradePending = false; _hyperUpgradePending = false;
   shieldActive = false; shieldTmr = 0; shieldFarewellTmr = 0;
+  laserActive = false; laserTmr = 0;
   combo = 0; comboTmr = 0; comboZeroAnim = 0;
   if (ufo) { stopUFOSound(); ufo = null; } ufo2 = null;
   if (mammoth) { stopMammothSound(); mammoth = null; }
@@ -4655,6 +4770,58 @@ function drawBombPod(u) {
   ctx.restore();
 }
 
+function drawLaserPod(u) {
+  const s = 0.13;
+  ctx.save();
+  ctx.translate(u.x, u.y);
+  ctx.strokeStyle = '#FF0000';
+  ctx.lineWidth = 1.5;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  // Outer shield polygon (from targetlaserupgrade.svg)
+  ctx.beginPath();
+  [[162.4,152],[99,173.7],[37.7,151.2],[37.7,30.8],[162.4,31.6]].forEach(([px, py], i) => {
+    const tx = (px - 100) * s, ty = (py - 100) * s;
+    if (i === 0) ctx.moveTo(tx, ty); else ctx.lineTo(tx, ty);
+  });
+  ctx.closePath();
+  ctx.stroke();
+  // Crosshair — vertical segments (gap at centre)
+  ctx.beginPath(); ctx.moveTo((100.3-100)*s, (48-100)*s);   ctx.lineTo((100.3-100)*s, (81.3-100)*s);  ctx.stroke();
+  ctx.beginPath(); ctx.moveTo((100.3-100)*s, (107.9-100)*s); ctx.lineTo((100.3-100)*s, (141.2-100)*s); ctx.stroke();
+  // Crosshair — horizontal segments (gap at centre)
+  ctx.beginPath(); ctx.moveTo((53.7-100)*s,  (94.6-100)*s); ctx.lineTo((87.1-100)*s,  (94.6-100)*s); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo((113.6-100)*s, (94.6-100)*s); ctx.lineTo((146.9-100)*s, (94.6-100)*s); ctx.stroke();
+  ctx.restore();
+}
+
+function drawTargetingLaser() {
+  if (!laserActive || !ship.alive) return;
+  const fa = ship.angle - Math.PI / 2;
+  const nx = ship.x + Math.cos(fa) * 20;
+  const ny = ship.y + Math.sin(fa) * 20;
+  const dx = Math.cos(fa), dy = Math.sin(fa);
+  // Find first screen-edge intersection along the ray
+  let t = Infinity;
+  if (dx > 0) t = Math.min(t, (W - nx) / dx);
+  else if (dx < 0) t = Math.min(t, -nx / dx);
+  if (dy > 0) t = Math.min(t, (H - ny) / dy);
+  else if (dy < 0) t = Math.min(t, -ny / dy);
+  const ex = nx + dx * t, ey = ny + dy * t;
+  // High-frequency flicker matching shield pulse rate
+  const pulse = 0.5 + 0.5 * Math.sin(ticker * (2 * Math.PI / 2.5));
+  ctx.save();
+  ctx.globalAlpha = 0.45 + pulse * 0.55;
+  ctx.strokeStyle = '#440000';
+  ctx.lineWidth = 1;
+  ctx.lineCap = 'butt';
+  ctx.beginPath();
+  ctx.moveTo(nx, ny);
+  ctx.lineTo(ex, ey);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawBombRings() {
   if (_bombRings.length === 0) return;
   ctx.save();
@@ -4720,7 +4887,7 @@ function drawHUD() {
     const _gl = [
       'I  SHIELD POD', 'D  DUAL FIRE', 'P  HYPER POD',
       'B  SMART BOMB', 'K  MAMMOTH',   'U  LARGE UFO',
-      'L  ALIEN UFO',  'C  BOSS STAGE','H  WARP TO LEVEL',
+      'T  LASER POD',  'L  ALIEN UFO', 'C  BOSS STAGE','H  WARP TO LEVEL',
     ];
     const _c = 'rgba(255,80,80,0.55)';
     _gl.forEach((line, i) => vText(line, 10, H - 30 - (_gl.length - 1 - i) * 11, 7, 'left', 1, _c));
@@ -4733,6 +4900,7 @@ function drawHUD() {
     else if (shieldTmr > 0)     _ct.push(['SHIELD',        _s(shieldTmr)]);
     if (upgradeTmr > 0)         _ct.push(['DUAL FIRE',     _s(upgradeTmr)]);
     if (hyperUpgradeTmr > 0)    _ct.push(['HYPER FIRE',    _s(hyperUpgradeTmr)]);
+    if (laserTmr > 0)           _ct.push(['LASER',         _s(laserTmr)]);
     if (invTmr > 0)             _ct.push(['INVINCIBLE',    _s(invTmr)]);
     if (levelGraceTmr > 0)      _ct.push(['GRACE',         _s(levelGraceTmr)]);
     // Spawn countdowns (only when entity is absent)
@@ -4743,6 +4911,7 @@ function drawHUD() {
     if (!hyperUpgradePod)       _ct.push(['HYPER POD',     _s(hyperUpgradePodTmr)]);
     if (!shieldPod)             _ct.push(['SHIELD POD',    _s(shieldPodTmr)]);
     if (!bombPod)               _ct.push(['BOMB POD',      _s(bombPodTmr)]);
+    if (!laserPod)              _ct.push(['LASER POD',     _s(laserPodTmr)]);
     // Active missiles — individually numbered with remaining lifetime
     missiles.forEach((m, i) => {
       if (m.life > 0) _ct.push(['MSL ' + (i + 1), _s(m.life)]);
@@ -5161,8 +5330,10 @@ function loop(ts) {
       if (hyperUpgradePod) drawHyperUpgradePod(hyperUpgradePod);
       if (shieldPod) drawShieldPod(shieldPod);
       if (bombPod) drawBombPod(bombPod);
+      if (laserPod) drawLaserPod(laserPod);
       drawParticles();
       drawPopups();
+      drawTargetingLaser();
       drawShieldRing();
       drawBombRings();
       drawShip(ship);
@@ -5322,6 +5493,7 @@ window.addEventListener('keydown', e => {
     if (e.key === 'd' || e.key === 'D') { spawnUpgradePod(); return; }
     if (e.key === 'p' || e.key === 'P') { spawnHyperUpgradePod(); return; }
     if (e.key === 'b' || e.key === 'B') { spawnBombPod(); return; }
+    if (e.key === 't' || e.key === 'T') { spawnLaserPod(); return; }
     if (e.key === 'k' || e.key === 'K') { stopMammothSound(); mammoth = mkMammoth(); startMammothSound(); speak('massive object entering sector!'); return; }
     if (e.key === 'u' || e.key === 'U') { _godSpawnUFO('big');   return; }
     if (e.key === 'l' || e.key === 'L') { _godSpawnUFO('alien'); return; }
