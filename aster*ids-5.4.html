@@ -4801,24 +4801,56 @@ function drawTargetingLaser() {
   const nx = ship.x + Math.cos(fa) * 20;
   const ny = ship.y + Math.sin(fa) * 20;
   const dx = Math.cos(fa), dy = Math.sin(fa);
-  // Find first screen-edge intersection along the ray
-  let t = Infinity;
-  if (dx > 0) t = Math.min(t, (W - nx) / dx);
-  else if (dx < 0) t = Math.min(t, -nx / dx);
-  if (dy > 0) t = Math.min(t, (H - ny) / dy);
-  else if (dy < 0) t = Math.min(t, -ny / dy);
-  const ex = nx + dx * t, ey = ny + dy * t;
+
+  // Ray–circle intersection: returns t of first entry point, or Infinity
+  const rayHit = (cx, cy, r) => {
+    const vx = cx - nx, vy = cy - ny;
+    const tca = vx * dx + vy * dy;
+    if (tca < 0) return Infinity;
+    const d2 = vx * vx + vy * vy - tca * tca;
+    if (d2 >= r * r) return Infinity;
+    const t = tca - Math.sqrt(r * r - d2);
+    return t >= 0 ? t : Infinity;
+  };
+
+  // Screen-edge t
+  let tEdge = Infinity;
+  if (dx > 0) tEdge = Math.min(tEdge, (W - nx) / dx);
+  else if (dx < 0) tEdge = Math.min(tEdge, -nx / dx);
+  if (dy > 0) tEdge = Math.min(tEdge, (H - ny) / dy);
+  else if (dy < 0) tEdge = Math.min(tEdge, -ny / dy);
+
+  // Find nearest object hit along the ray (before the screen edge)
+  let tHit = tEdge;
+  asteroids.forEach(a => { tHit = Math.min(tHit, rayHit(a.x, a.y, a.r)); });
+  if (ufo)     tHit = Math.min(tHit, rayHit(ufo.x,     ufo.y,     ufo.r));
+  if (mammoth) tHit = Math.min(tHit, rayHit(mammoth.x, mammoth.y, mammoth.r));
+  if (boss)    tHit = Math.min(tHit, rayHit(boss.x,    boss.y,    BOSS_HIT_R));
+
+  const ex = nx + dx * tEdge, ey = ny + dy * tEdge;
+
   // High-frequency flicker matching shield pulse rate
   const pulse = 0.5 + 0.5 * Math.sin(ticker * (2 * Math.PI / 2.5));
+
   ctx.save();
   ctx.globalAlpha = 0.45 + pulse * 0.55;
-  ctx.strokeStyle = '#440000';
+  ctx.strokeStyle = '#770000';
   ctx.lineWidth = 1;
   ctx.lineCap = 'butt';
   ctx.beginPath();
   ctx.moveTo(nx, ny);
   ctx.lineTo(ex, ey);
   ctx.stroke();
+
+  // Glowing impact spot on nearest hit surface
+  if (tHit < tEdge) {
+    const hx = nx + dx * tHit, hy = ny + dy * tHit;
+    ctx.strokeStyle = '#ff0000';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(hx, hy, 3, 0, Math.PI * 2);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
