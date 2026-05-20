@@ -96,7 +96,7 @@
 // ============================================================
 
 const W = 983, H = 553;
-const VERSION = '5.53';
+const VERSION = '5.55';
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const dpr = window.devicePixelRatio || 1;
@@ -2121,7 +2121,7 @@ let shieldPod = null, shieldPodTmr = 1200 + Math.random() * 600;
 let bombPod = null, bombPodTmr = 1800 + Math.random() * 900;
 let bombCount = 0;  // smart bombs carried (0–3)
 let _bombRings = [];  // expanding magenta rings on detonation
-let laserPod = null, laserPodTmr = 3600 + Math.random() * 1200;   // targeting laser pod
+let laserPod = null, laserPodTmr = 900 + Math.random() * 600;   // targeting laser pod
 let laserActive = false, laserTmr = 0;                           // active beam state
 let mammoth = null;                          // mammoth asteroid (one at a time)
 let mammothSpawnTmr = 7200;                  // first spawn at ~2 min after L6 reached
@@ -2512,7 +2512,7 @@ function initGame() {
   shieldActive = false; shieldTmr = 0; shieldFarewellTmr = 0;
   bombPod = null; bombPodTmr = 1800 + Math.random() * 900;
   bombCount = 0; _bombRings = [];
-  laserPod = null; laserPodTmr = 3600 + Math.random() * 1200;
+  laserPod = null; laserPodTmr = 900 + Math.random() * 600;
   laserActive = false; laserTmr = 0;
   stopMammothSound(); mammoth = null; mammothSpawnTmr = 1200;
   stopAlienSound(); boss = null;
@@ -3353,9 +3353,9 @@ function update() {
   if (!laserPod) {
     laserPodTmr--;
     if (laserPodTmr <= 0 && (asteroids.length > 0 || state === 'bossstage') && levelGraceTmr <= 0) {
-      if (state === 'bossstage' || asteroids.length > 4 || Math.random() < 0.15) {
+      if (state === 'bossstage' || asteroids.length > 4) {
         spawnLaserPod();
-        laserPodTmr = 3600 + Math.random() * 1200;  // next pod in ~60-80s
+        laserPodTmr = 900 + Math.random() * 600;
       } else {
         laserPodTmr = 120;  // too few asteroids — retry in 2s
       }
@@ -3674,7 +3674,7 @@ function update() {
     hyperUpgradeActive = false; hyperUpgradeTmr = 0;
     if (!hyperUpgradePod) hyperUpgradePodTmr = 2400 + Math.random() * 1200;
     if (!shieldPod) shieldPodTmr = 1200 + Math.random() * 600;
-    if (!laserPod) laserPodTmr = 3600 + Math.random() * 1200;
+    if (!laserPod) laserPodTmr = 900 + Math.random() * 600;
     stopMammothSound(); mammoth = null; mammothSpawnTmr = Math.round(Math.max(3600, 9000 - (level - 6) * 300) * (0.8 + Math.random() * 0.4));
     levelBonus = Math.round(levelTimer / 60 * (5000 + 200 * (level - 1)));
     score += levelBonus;
