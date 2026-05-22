@@ -2380,7 +2380,7 @@ function _updatePod(pod, onPickup, nullFn) {
     pod.vx *= 0.92; pod.vy *= 0.92;
     pod.x += pod.vx; pod.y += pod.vy;
     pod.releasedTmr++;
-    if (pod.releasedTmr > 300) { nullFn(); return; }  // 5 s at 60 fps
+    if (pod.releasedTmr > 480) { nullFn(); return; }  // 8 s at 60 fps
     // Ship collision → collect
     if (ship.alive && invTmr <= 0 &&
         Math.hypot(ship.x - pod.x, ship.y - pod.y) < pod.r + 10) {
