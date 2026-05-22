@@ -5170,7 +5170,6 @@ function loop(ts) {
       drawHyperspace();
     } else if (state === 'levelcomplete') {
       asteroids.forEach(drawAsteroid);
-      drawShip(ship);
       drawLevelComplete();   // particles + overlay text
       drawHUD();
     } else if (state === 'levelstart') {
