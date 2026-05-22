@@ -3434,14 +3434,17 @@ function update() {
     // (Clearing them caused the smart bomb to appear to "hit" pods: the bomb
     //  kills the last asteroids → level ends → pods disappear, looking like the
     //  bomb destroyed them.  Players can still collect active pods next level.)
-    upgradeActive = false; upgradeTmr = 0; _upgradeGunLeft = false;
+    const _isClusterLevel = (level % 5 === 2 && level >= 7);
+    // Upgrades carry into the cluster wave — only reset them on normal level transitions
+    if (!_isClusterLevel) {
+      upgradeActive = false; upgradeTmr = 0; _upgradeGunLeft = false;
+      hyperUpgradeActive = false; hyperUpgradeTmr = 0;
+    }
     if (!upgradePod) upgradePodTmr = 900 + Math.random() * 600;
-    hyperUpgradeActive = false; hyperUpgradeTmr = 0;
     if (!hyperUpgradePod) hyperUpgradePodTmr = 2400 + Math.random() * 1200;
     if (!shieldPod) shieldPodTmr = 1200 + Math.random() * 600;
     if (!laserPod) laserPodTmr = 900 + Math.random() * 600;
     stopMammothSound(); mammoth = null; mammothSpawnTmr = Math.round(Math.max(3600, 9000 - (level - 6) * 300) * (0.8 + Math.random() * 0.4));
-    const _isClusterLevel = (level % 5 === 2 && level >= 7);
     if (!_isClusterLevel) {
       levelBonus = Math.round(levelTimer / 60 * (5000 + 200 * (level - 1)));
       score += levelBonus;
@@ -3594,6 +3597,7 @@ function drawClusterWave() {
     drawBullet(b, b.col || '#3CC8A4');
   }); ctx.globalAlpha = 1;
   drawParticles();
+  drawRings();
   drawPopups();
   drawTargetingLaser();
   drawShieldRing();
