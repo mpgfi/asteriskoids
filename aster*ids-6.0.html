@@ -627,6 +627,7 @@ const SFX = {
   smlBoom:() => { const r=0.75+Math.random()*0.5; noiseBurst(180*r, 0.3, 1.00*_vol.boom, 1.5); },
   die:    () => { [0,80,160,240,350].forEach(ms => setTimeout(() => noiseBurst(55 + Math.random()*40, 0.4, 1.20*_vol.die, 1), ms)); },
   life:   () => { [880,1100,1320].forEach((f,i)=>tone(f,'sine',0.3,0.4*_vol.life,i*0.12)); },
+  ping:   () => { tone(1760, 'sine', 0.14, 0.20*_vol.life, 0); tone(1320, 'sine', 0.22, 0.18*_vol.life, 0.05); },
   comboBoop: () => { try {
     const a = audio(), t = a.currentTime;
     const o = a.createOscillator(), g = a.createGain();
@@ -3135,8 +3136,7 @@ function update() {
   } else {
     _updatePod(upgradePod, p => {
       popups.push({ x: p.x, y: p.y, text: 'DUAL FIRE', life: 1, color: ORG });
-      burst(p.x, p.y, 24, 4, '#FFFF00'); spawnRings(p.x, p.y, 20, '#FFFF00');
-      SFX.medBoom(); speak('dual fire!');
+      SFX.ping(); speak('dual fire!');
       _upgradePending = true; heat = 0; fireTmr = 0;
     }, () => { upgradePod = null; });
   }
@@ -3153,8 +3153,7 @@ function update() {
   } else {
     _updatePod(hyperUpgradePod, p => {
       popups.push({ x: p.x, y: p.y, text: 'HYPER FIRE', life: 1, color: '#00FFFF' });
-      burst(p.x, p.y, 24, 4, '#00FFFF'); spawnRings(p.x, p.y, 20, '#00FFFF');
-      SFX.medBoom(); speak('hyper fire!');
+      SFX.ping(); speak('hyper fire!');
       _hyperUpgradePending = true; heat = 0; fireTmr = 0;
     }, () => { hyperUpgradePod = null; });
   }
@@ -3169,8 +3168,7 @@ function update() {
   } else {
     _updatePod(shieldPod, p => {
       popups.push({ x: p.x, y: p.y, text: 'SHIELD', life: 1, color: '#008800' });
-      burst(p.x, p.y, 24, 4, '#008800'); spawnRings(p.x, p.y, 20, '#008800');
-      SFX.medBoom(); speak('shield!');
+      SFX.ping(); speak('shield!');
       shieldActive = true; shieldTmr = 1200;
     }, () => { shieldPod = null; });
   }
@@ -3185,8 +3183,7 @@ function update() {
   } else {
     _updatePod(bombPod, p => {
       popups.push({ x: p.x, y: p.y, text: 'SMART BOMB', life: 1, color: '#ff00ff' });
-      burst(p.x, p.y, 24, 4, '#ff00ff'); spawnRings(p.x, p.y, 20, '#ff00ff');
-      SFX.medBoom(); speak('smart bomb!');
+      SFX.ping(); speak('smart bomb!');
       bombCount = Math.min(3, bombCount + 1);
     }, () => { bombPod = null; });
   }
@@ -3205,8 +3202,7 @@ function update() {
   } else {
     _updatePod(laserPod, p => {
       popups.push({ x: p.x, y: p.y, text: 'TARGETING LASER', life: 1, color: '#FF0000' });
-      burst(p.x, p.y, 24, 4, '#FF0000'); spawnRings(p.x, p.y, 20, '#FF0000');
-      SFX.medBoom(); speak('targeting laser!');
+      SFX.ping(); speak('targeting laser!');
       laserActive = true; laserTmr = 1800;
     }, () => { laserPod = null; });
   }
