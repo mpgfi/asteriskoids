@@ -3335,7 +3335,7 @@ function update() {
       SFX.smlBoom();
       pod.phase = 'released';
       const _ra = Math.atan2(H / 2 - pod.y, W / 2 - pod.x);
-      pod.vx = Math.cos(_ra) * 2; pod.vy = Math.sin(_ra) * 2;
+      pod.vx = Math.cos(_ra) * 4; pod.vy = Math.sin(_ra) * 4;
       pod.r  = 12;
       b.life = 0; hit = true;
     }
@@ -4191,7 +4191,7 @@ function updateBossStage() {
         SFX.smlBoom();
         pod.phase = 'released';
         const _ra = Math.atan2(H / 2 - pod.y, W / 2 - pod.x);
-        pod.vx = Math.cos(_ra) * 2; pod.vy = Math.sin(_ra) * 2;
+        pod.vx = Math.cos(_ra) * 4; pod.vy = Math.sin(_ra) * 4;
         pod.r  = 12;
         b.life = 0;
         break;
