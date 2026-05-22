@@ -3396,7 +3396,12 @@ function update() {
   // ── Asteroids vs ship ──
   if (ship.alive && invTmr <= 0) {
     for (const a of asteroids) {
-      if (wrapDist(a.x, a.y, ship.x, ship.y) < a.r + 9) {
+      // Cluster asteroids travel off-screen and never wrap — use direct distance
+      // to avoid wrapDist folding an off-screen asteroid onto the opposite edge.
+      const _aDist = a.cluster
+        ? Math.hypot(a.x - ship.x, a.y - ship.y)
+        : wrapDist(a.x, a.y, ship.x, ship.y);
+      if (_aDist < a.r + 9) {
         if (shieldActive) { shieldActive = false; shieldTmr = 0; shieldFarewellTmr = 0; invTmr = 90; spawnRings(ship.x, ship.y, 20, '#008800'); speak('shields are down!'); break; }
         else { killShip(); break; }
       }
